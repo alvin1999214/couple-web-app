@@ -39,36 +39,135 @@ docker compose down -v
 
 此操作會永久刪除舊資料，已有正式資料時請勿執行。
 
-## 開發與測試
+## 架構總覽
 
-若本地已安裝 Python 3.10+：
-
-```bash
-python app.py
-python -m unittest discover -s tests -v
-```
-
-專案結構：
+本專案刻意維持零第三方 runtime dependency：後端使用 Python 標準函式庫，前端使用原生 HTML／CSS／JavaScript。依賴方向固定由外向內，domain/service 不應依賴 HTTP 或前端細節。
 
 ```text
-app.py              # Composition root，只負責組裝及啟動
-ourspace/config.py  # 環境設定與 UI domain 常數
-ourspace/database.py # SQLite connection、transaction 與共用存取 helper
-ourspace/migration_runner.py # Migration transaction、版本檢查及升級前備份
-ourspace/migrations/ # 按版本排列、不可修改的 schema migrations
-ourspace/http.py    # HTTP／JSON／靜態檔案 adapter
-ourspace/router.py  # 宣告式 API route mapping
-ourspace/expense_filters.py # 開支日期／類別 filter domain model
-ourspace/services/  # 依 expenses、shopping、todos 等 feature 分拆
-ourspace/validation.py # 共用輸入驗證
-static/index.html   # 頁面結構與 SVG icon sprite
-static/styles.css   # 響應式介面與動畫
-static/app.js       # widget 渲染、表單、拖拉互動
-tests/test_app.py   # 資料層核心測試
-tests/test_migrations.py # 舊資料升級、rollback、table／field 擴展測試
+Browser UI (static/)
+        │ JSON over HTTP
+        ▼
+HTTP adapter (ourspace/http.py)
+        │ route dispatch
+        ▼
+Router (ourspace/router.py)
+        │ calls one feature service
+        ▼
+Services (ourspace/services/) ──► Domain helpers / validation
+        │ SQL within a transaction
+        ▼
+Database lifecycle (ourspace/database.py)
+        │ startup only
+        ├──► Migration runner (ourspace/migration_runner.py)
+        └──► SQLite (/app/data/ourspace.db)
 ```
 
-## 資料庫升級
+各層責任：
+
+| 層級 | 應負責 | 不應負責 |
+|---|---|---|
+| `app.py` | 組裝 Database、Router、HTTP server；啟動 migration | Domain logic、SQL、輸入驗證 |
+| `http.py` | HTTP method、JSON、status code、靜態檔案、安全 header | Feature rules、直接存取資料庫 |
+| `router.py` | URL mapping、path/query parameter 轉交、onboarding gate | 業務計算、大量流程代碼 |
+| `services/` | 一個 feature 的 use case、transaction boundary、SQL | HTML／CSS、HTTP response 實作 |
+| Domain helpers | 可重用且可單獨測試的計算與驗證 | Connection lifecycle |
+| `database.py` | Connection、commit／rollback、SQLite PRAGMA | Feature-specific query |
+| `migrations/` | Schema、index、舊資料 backfill | Runtime request logic |
+| `static/app.js` | UI state、API 呼叫、render、表單與互動 | 作為業務資料的唯一真相來源 |
+
+## 專案結構
+
+```text
+.
+├── .dockerignore                  # 排除 image 不需要的本機資料及 cache
+├── .gitignore                     # 排除 database、cache 及本機檔案
+├── app.py                         # Composition root 及 HTTP server 啟動點
+├── docker-compose.yml             # localhost port、DATA_DIR、named volume
+├── Dockerfile                     # 無 root、Python 3.12 Alpine runtime
+├── README.md                      # 架構、操作及接手規則（本文件）
+├── ourspace/
+│   ├── __init__.py                # Python package marker
+│   ├── config.py                  # 環境設定、HKD／zh-HK、類別及預設 widget layout
+│   ├── database.py                # SQLite connection、transaction、共用存取 helpers
+│   ├── errors.py                  # API 可預期錯誤及 HTTP status
+│   ├── expense_filters.py         # 日期範圍／類別 filter domain model
+│   ├── http.py                    # HTTP／JSON／靜態檔案 adapter
+│   ├── maintenance.py             # 已完成購物項目的保留期清理規則
+│   ├── migration_runner.py        # Migration 順序、transaction、驗證及備份
+│   ├── router.py                  # 宣告式 API route mapping
+│   ├── split.py                   # 平均、自訂及收入比例分帳計算
+│   ├── validation.py              # 共用文字、數字、日期、類別及 boolean 驗證
+│   ├── migrations/
+│   │   ├── __init__.py            # 唯一 migration registry
+│   │   ├── types.py               # Immutable Migration 定義
+│   │   ├── helpers.py             # 安全 additive schema helpers
+│   │   ├── v001_initial.py        # 初始 tables
+│   │   ├── v002_shopping_completed_at.py
+│   │   └── v003_query_indexes.py
+│   └── services/
+│       ├── shared.py              # Service dependency base
+│       ├── dashboard.py           # Dashboard read model 及開支統計
+│       ├── expenses.py            # 開支 CRUD
+│       ├── settings.py            # Onboarding、設定及 layout persistence
+│       ├── shopping.py            # 購物 CRUD、完成購物並建立開支
+│       ├── todos.py               # Todo CRUD／完成狀態
+│       └── special_days.py        # 特別日子 CRUD
+├── static/
+│   ├── index.html                 # App shell、onboarding、filter、modal、SVG sprite
+│   ├── styles.css                 # Design tokens、widget、動畫及 responsive layout
+│   └── app.js                     # SPA state、API、renderer、form config、event delegation
+└── tests/
+    ├── test_app.py                # Feature、資料保留及 validation integration tests
+    └── test_migrations.py         # 舊 schema 升級、backup、rollback、擴展測試
+```
+
+## 重要 Domain 規則
+
+- 首次使用前，除 health、status、dashboard 及 onboarding 外，所有 domain route 都由 Router 阻擋。
+- 新資料庫不可加入 demo／default user data；onboarding 完成前應保持空白。
+- 購物清單與開支不是同一筆資料。完成購物時才輸入實付價格並建立開支；之後刪除或清理購物項目不得刪除開支。
+- 已完成購物項目保留 30 日；清理是 dashboard read 時的 maintenance side effect，開支永久保留。
+- `expense_total` 是目前 filter 總額；`month_expense_total` 是所選月份、全部類別的總額，兩者不可混用。
+- `today` 由瀏覽器以 `YYYY-MM-DD` 傳入 dashboard API，避免 Docker UTC 與香港本地日期不同。
+- 日期在資料庫以 ISO `YYYY-MM-DD` 儲存，讓字串排序及 `BETWEEN` query 保持正確。
+- Settings 使用 key/value JSON；新增設定仍需在 service 驗證並提供舊資料 fallback。
+- 金額目前以兩位小數 `REAL` 保存。若改用整數港仙，必須以新 migration、舊資料 backfill 及 API compatibility 測試完成，不可直接改欄位。
+
+## 前端架構及跨檔案契約
+
+`static/app.js` 是小型 SPA，主要流程是：
+
+1. `loadDashboard()` 將 global filter 組成 query string。
+2. API 回傳完整 dashboard read model，存入唯一的 `state.data`。
+3. `renderDashboard()` 按 persisted layout 呼叫各 widget renderer。
+4. 所有新增／編輯表單由 `forms` config 建立；共用 modal 負責 submit。
+5. Mutation 成功後重新載入 dashboard，不在前端自行模擬後端結果。
+
+修改前端時必須遵守：
+
+- UI 文案使用香港常用繁體中文，locale 為 `zh-HK`，貨幣為 HKD。
+- 所有 API 或 user-generated text 插入 HTML 前必須經 `esc()`；不要直接拼接未處理輸入。
+- 新增 widget 時，同步更新 `config.DEFAULT_LAYOUT`／`WIDGET_IDS`、`app.js` 的 `widgetMeta`、renderer mapping 及 CSS。
+- 新增開支類別時，同步更新 `config.CATEGORY_META`、`app.js` 的 `categories`、filter options 及相關測試。
+- CSS／JavaScript 行為有更新時，同步提升 `index.html` 的 `?v=` asset version，避免舊 browser cache。
+- 手機最低寬度以 320px 為基準；新增 UI 要檢查 390px mobile 及 desktop layout。
+- 動畫必須保留 `prefers-reduced-motion` fallback。
+
+## 新增或修改功能
+
+一般 feature 的落點順序：
+
+1. 判斷是否需要 schema 變更；需要便先建立下一個 migration。
+2. 把共用驗證或純計算放入 `validation.py` 或獨立 domain module。
+3. 在對應 service 實作 use case；同一個 use case 的多個 SQL 寫入使用同一 connection。
+4. 在 `router.py` 只加入薄 route mapping，不把流程寫進 lambda／Router。
+5. Dashboard 需要顯示資料時，在 `DashboardService` 擴充 read model。
+6. 前端先擴充 state／renderer／forms config，再加入 event delegation 及 responsive CSS。
+7. 為成功、驗證失敗、舊資料 compatibility 及資料保留語意加入測試。
+
+避免產生 god class：若一個 service 開始處理其他 feature、同一計算在兩處出現，或 Router／`app.py` 出現 domain branch，應先抽成小 service 或 domain helper。
+
+## 資料庫及 Migration 規則
 
 資料庫 schema 由 `schema_migrations` 記錄版本。程式啟動時只會依序執行尚未套用的 migration，每一步都在獨立 transaction 內完成；失敗時會 rollback，已套用的 migration 不會重跑。
 
@@ -87,3 +186,65 @@ tests/test_migrations.py # 舊資料升級、rollback、table／field 擴展測�
 3. 新 field 優先先設為 nullable 或提供 default，再 backfill 舊資料。
 4. 不可修改或重新命名已發布的 migration；需要修正時建立下一版本。
 5. 在 `tests/test_migrations.py` 加入由舊 schema 升級並核對原有資料的測試。
+
+其他規則：
+
+- Migration 版本必須由 1 開始、連續、唯一並按升序註冊。
+- 新增 table 使用 `CREATE TABLE`；新增 field 優先使用 `ensure_column()`，migration 本身仍需可安全重試。
+- 新增 `NOT NULL` field 時先提供 default／nullable、backfill，再於後續 migration 收緊限制。
+- 不可在 `database.py`、service startup 或 request handler 即場執行 `ALTER TABLE`。
+- 常用 filter／sort field 應在 migration 加 index，並以測試或 `EXPLAIN QUERY PLAN` 驗證。
+- `ourspace_data` 適合 container rebuild 持久化，但不是 off-site backup；`docker compose down -v` 會連 migration backups 一併刪除。
+
+目前主要 tables：
+
+| Table | 用途及關係 |
+|---|---|
+| `settings` | JSON key/value；onboarding、預算、名字、split、layout |
+| `expenses` | 開支 ledger；`shopping_item_id` 只記錄來源，不控制購物項目 lifecycle |
+| `shopping_items` | 待購／已完成狀態；`expense_id` 刪除時設為 `NULL` |
+| `todos` | 待辦、負責人、期限、完成狀態 |
+| `special_days` | 特別日子及每年重複設定 |
+| `schema_migrations` | 已套用 schema version、名稱及時間 |
+
+## API 慣例
+
+- Request／response 使用 JSON；錯誤統一為 `{ "error": "香港繁體中文訊息" }`。
+- 可預期輸入錯誤使用 `ApiError`；不要用裸 exception 表達 validation failure。
+- Create route 回傳 `201`；update／delete 通常回傳 `{ "ok": true }`。
+- 所有 SQL value 使用 parameter binding，不把 user input 拼入 SQL。
+- Route 是否需要完成 onboarding 由 `Route.requires_setup` 控制。
+- Dashboard 是組合 read endpoint；feature mutation 保持為獨立 endpoint。
+
+API 清單的單一真相來源是 `ourspace/router.py`。新增或改名 endpoint 時，必須同時更新前端呼叫及 integration tests。
+
+## 開發、測試及交付清單
+
+若本地已安裝 Python 3.10+：
+
+```bash
+python app.py
+python -m unittest discover -s tests -v
+python -m py_compile app.py ourspace/*.py ourspace/migrations/*.py ourspace/services/*.py
+node --check static/app.js
+```
+
+提交前至少確認：
+
+- 全部測試通過，fresh database 及 legacy migration 都有覆蓋。
+- 沒有加入 demo data，也沒有覆寫現有 Docker volume。
+- Mutation 的 validation、transaction、404／409 等錯誤語意完整。
+- 新 schema 只透過下一版本 migration 套用，舊 row 已驗證仍存在。
+- Desktop 與 mobile UI 均可操作，loading／empty／error state 沒有失效。
+- README 的 project tree、domain rule 或 migration 指引仍與代碼一致。
+
+## 給 AI Agent／新開發者的接手次序
+
+1. 先閱讀本 README，再查看 `git status`，保留任何不屬於當前任務的現有修改。
+2. 從 `router.py` 找 feature 入口，再讀對應 service、domain helper 及 tests；不要先把所有邏輯搬進 `app.py`。
+3. 涉及資料格式時先讀 migration registry 及 legacy tests，絕不直接修改已發布 migration。
+4. 涉及 UI 時搜尋相關 renderer、form config、event selector 及 CSS class，確認跨檔案契約。
+5. 以最小、可測試的 feature boundary 實作，維持 DRY，完成後執行完整驗證清單。
+6. 交付時說明修改檔案、migration version、資料 compatibility、測試結果及 Docker 是否需要 rebuild。
+
+若 README 與代碼不一致，以測試及實際代碼為當前行為，但應在同一變更中修正 README，避免下一位接手者沿用過時資訊。
