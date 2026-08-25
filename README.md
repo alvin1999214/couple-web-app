@@ -13,6 +13,7 @@
 - 紀念日、生日等特別日子倒數與每年提醒
 - 不同尺寸 widget，桌面可拖拉排序、調整大小、隱藏／恢復
 - 手機與桌面響應式 UI、轉場動畫與 reduced-motion 支援
+- Ravenclaw 星空藍魔法學院主題、Teletubbyland「星空下的家」線條徽章及 Safari 主畫面 app icon
 - SQLite 持久化資料，Docker named volume 保存內容
 - 版本化 SQLite migration、升級前一致性備份及常用查詢 index
 - 首次開啟會引導設定雙方名字、共同預算與開始日期；不預載示範資料
@@ -113,7 +114,9 @@ Database lifecycle (ourspace/database.py)
 │       ├── todos.py               # Todo CRUD／完成狀態
 │       └── special_days.py        # 特別日子 CRUD
 ├── static/
-│   ├── index.html                 # App shell、onboarding、filter、modal、SVG sprite
+│   ├── assets/                    # Logo master、favicon、Apple／PWA icon sizes
+│   ├── index.html                 # App shell、PWA metadata、onboarding、filter、modal、SVG sprite
+│   ├── manifest.webmanifest       # Standalone app 名稱、顏色及 icon 宣告
 │   ├── styles.css                 # Design tokens、widget、動畫及 responsive layout
 │   └── app.js                     # SPA state、API、renderer、form config、event delegation
 └── tests/
@@ -152,6 +155,28 @@ Database lifecycle (ourspace/database.py)
 - CSS／JavaScript 行為有更新時，同步提升 `index.html` 的 `?v=` asset version，避免舊 browser cache。
 - 手機最低寬度以 320px 為基準；新增 UI 要檢查 390px mobile 及 desktop layout。
 - 動畫必須保留 `prefers-reduced-motion` fallback。
+
+### 視覺設計系統
+
+- 主題是 Ravenclaw 氣質的原創「星空魔法學院／古老圖書館」風格，不直接使用或複製任何官方電影校徽、角色、字標或受保護圖像。
+- 主色為午夜星空藍 `#08152f`、月光銀藍 `#e7edf6`、學院藍 `#31598f` 及古銅金 `#c9a45c`。
+- Display typography 使用 `Cinzel`／`Noto Serif TC`，操作文字使用 `Noto Sans TC`；必須保留 system fallback。
+- 深色星空藍 app shell 承托月光冷藍 widgets；重要 CTA 用古銅金，開支重點用學院藍，完成狀態用青綠。
+- `teletubbyland-home-emblem-master.png` 是品牌 master；介面及 metadata 應使用相應縮圖，不要直接下載或替換成官方 franchise artwork。
+- Logo 是原創「星空下的家」簡線圖形，以古銅金屋形與銀藍星光表達兩個人的共同生活；修改時要重新輸出並檢查 32、180、192、512px，確保在 iOS mask 及 favicon 小尺寸仍清晰。
+
+## Safari 加入主畫面
+
+`index.html` 已提供 Apple mobile web app metadata、180px touch icon、`viewport-fit=cover` 及 standalone safe-area 樣式；`manifest.webmanifest` 同時供支援 manifest 的瀏覽器使用。
+
+在 iPhone／iPad 安裝：
+
+1. 用 Safari 開啟可連接此 Docker 服務的網址。手機上的 `localhost` 代表手機本身，應使用電腦的區域網絡 IP 或已部署的 HTTPS 網址。
+2. 按 Safari「分享」按鈕，選擇「加入主畫面」。
+3. 確認預覽顯示 Teletubbyland「星空下的家」徽章，再按「加入」。
+4. 從主畫面開啟後會使用 standalone 模式、星空藍 status bar 及 iOS safe areas。
+
+iOS 可能保存舊的 touch icon；Logo 更新後如仍顯示舊圖，先刪除原有主畫面捷徑，再從 Safari 重新加入。此 app 的資料及 API 仍由本機 Docker server 提供，因此手機離開可連接該 server 的網絡後不會有完整離線功能。
 
 ## 新增或修改功能
 

@@ -3,13 +3,23 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#f7f4ee">
-  <meta name="description" content="Teletubbyland，兩個人的生活管理空間。">
-  <title>Teletubbyland — Shared Life</title>
+  <meta name="theme-color" content="#08152f">
+  <meta name="description" content="Teletubbyland，收藏兩個人日常魔法的共同生活空間。">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Teletubbyland">
+  <meta name="format-detection" content="telephone=no">
+  <title>Teletubbyland — 兩個人的魔法日常</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" sizes="180x180" href="/assets/home-icon-180.png">
+  <link rel="apple-touch-icon-precomposed" href="/assets/home-icon-180.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/home-icon-32.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="/assets/home-icon-192.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20260825-9">
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=Noto+Sans+TC:wght@400;500;600;700&family=Noto+Serif+TC:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css?v=20260825-11">
 </head>
 <body>
   <svg class="svg-sprite" aria-hidden="true">
@@ -32,17 +42,17 @@
   </svg>
 
   <div class="boot-screen" id="boot-screen">
-    <span class="brand-mark"><span></span><span></span></span>
-    <p>正在準備兩個人的空間…</p>
+    <img class="brand-emblem boot-emblem" src="/assets/home-icon-180.png" alt="">
+    <p>正在開啟兩個人的魔法空間…</p>
   </div>
 
   <section class="onboarding" id="onboarding" hidden>
     <div class="onboarding-story">
-      <a class="brand onboarding-brand" href="#"><span class="brand-mark"><span></span><span></span></span><span>Teletubbyland</span></a>
+      <a class="brand onboarding-brand" href="#"><img class="brand-emblem" src="/assets/home-icon-180.png" alt=""><span>Teletubbyland</span></a>
       <div class="onboarding-copy">
-        <p class="eyebrow">WELCOME TO YOUR SHARED SPACE</p>
-        <h1>Welcome Home，<br>記錄<span>我們的日常</span>。</h1>
-        <p>共同開支、購物、待辦事項與每一個值得記住的日子，都放在兩個人的空間裡。</p>
+        <p class="eyebrow">WELCOME TO YOUR ENCHANTED HOME</p>
+        <h1>Welcome Home，<br><span>收藏我們的<br>魔法日常。</span></h1>
+        <p>共同開支、購物、待辦事項與每一個值得記住的日子，都收藏在兩個人的魔法空間裡。</p>
         <div class="onboarding-features">
           <span><svg><use href="#i-wallet"/></svg> 共同規劃</span>
           <span><svg><use href="#i-check"/></svg> 一起完成</span>
@@ -75,7 +85,7 @@
   <div class="app-shell" id="app-shell" hidden>
     <aside class="sidebar" aria-label="主要導覽">
       <a class="brand" href="#top" aria-label="Teletubbyland 首頁">
-        <span class="brand-mark"><span></span><span></span></span>
+        <img class="brand-emblem" src="/assets/home-icon-180.png" alt="">
         <span>Teletubbyland</span>
       </a>
       <nav class="side-nav">
@@ -97,7 +107,7 @@
 
     <main class="main" id="top">
       <header class="topbar">
-        <button class="mobile-brand" aria-label="Teletubbyland"><span class="brand-mark"><span></span><span></span></span></button>
+        <button class="mobile-brand" aria-label="Teletubbyland"><img class="brand-emblem" src="/assets/home-icon-180.png" alt=""></button>
         <div class="date-chip"><span class="live-dot"></span><span id="today-label">今天</span></div>
         <div class="top-actions">
           <button class="icon-button notification-button" aria-label="提醒"><svg><use href="#i-bell"/></svg><span class="notice-dot"></span></button>
@@ -107,7 +117,7 @@
 
       <section class="welcome reveal">
         <div>
-          <p class="eyebrow">OUR SHARED LIFE</p>
+          <p class="eyebrow">OUR ENCHANTED LIFE</p>
           <h1><span id="greeting">早晨</span>，<span id="welcome-names">你們</span> <span class="wave">✦</span></h1>
           <p>把兩個人的日常，慢慢整理成喜歡的樣子。</p>
         </div>
@@ -165,7 +175,7 @@
         <div class="skeleton-card"></div>
         <div class="skeleton-card"></div>
       </section>
-      <footer>用心生活，也用心相愛 <span>♥</span></footer>
+      <footer>在平凡日常裡，留住一點魔法 <span>✦</span></footer>
     </main>
   </div>
 
@@ -180,7 +190,7 @@
   <div class="modal-backdrop" id="modal-backdrop" hidden>
     <section class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
       <div class="modal-handle"></div>
-      <header><div><p class="eyebrow">ADD TO OURSPACE</p><h2 id="modal-title">新增</h2></div><button class="icon-button" id="close-modal" aria-label="關閉"><svg><use href="#i-close"/></svg></button></header>
+      <header><div><p class="eyebrow">ADD TO OUR STORY</p><h2 id="modal-title">新增</h2></div><button class="icon-button" id="close-modal" aria-label="關閉"><svg><use href="#i-close"/></svg></button></header>
       <form id="dynamic-form"></form>
     </section>
   </div>
@@ -194,6 +204,6 @@
       boot.innerHTML = '<span class="boot-error-mark">!</span><strong>啟動時間比預期長</strong><p>請確認服務仍在運作，然後重新載入。</p><button type="button" onclick="window.location.reload()">重新載入</button>';
     }, 10000);
   </script>
-  <script src="/app.js?v=20260825-9" defer></script>
+  <script src="/app.js?v=20260825-11" defer></script>
 </body>
 </html>

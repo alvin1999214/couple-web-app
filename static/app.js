@@ -2,6 +2,11 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const icon = (name, className = "") => `<svg class="${className}" aria-hidden="true"><use href="#i-${name}"/></svg>`;
 
+document.documentElement.classList.toggle(
+  "standalone-app",
+  window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true,
+);
+
 const categories = {
   groceries: { label: "日常購物", color: "#ff8e7a" },
   dining: { label: "外出用餐", color: "#f6bd61" },

@@ -1,0 +1,28 @@
+{
+  "id": "/",
+  "name": "Teletubbyland — 兩個人的魔法日常",
+  "short_name": "Teletubbyland",
+  "description": "共同管理開支、購物、待辦與重要日子的魔法生活空間。",
+  "lang": "zh-HK",
+  "start_url": "/?source=homescreen",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#08152f",
+  "theme_color": "#08152f",
+  "orientation": "any",
+  "categories": ["lifestyle", "finance", "productivity"],
+  "icons": [
+    {
+      "src": "/assets/home-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/assets/home-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
