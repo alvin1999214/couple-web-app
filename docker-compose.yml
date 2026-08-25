@@ -1,0 +1,15 @@
+services:
+  ourspace:
+    build: .
+    container_name: ourspace-app
+    ports:
+      - "8000:8000"
+    environment:
+      PORT: "8000"
+      DATA_DIR: /app/data
+    volumes:
+      - ourspace_data:/app/data
+    restart: unless-stopped
+
+volumes:
+  ourspace_data:
