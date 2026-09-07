@@ -43,7 +43,10 @@ def create_handler(router: Router, static_dir: Path):
             try:
                 body = self.read_json() if method in {"POST", "PATCH"} else {}
                 payload, status = router.dispatch(method, parsed.path, body, parse_qs(parsed.query))
-                self.send_json(payload, status)
+                if isinstance(payload, dict) and payload.get("__download__"):
+                    self.send_download(payload, status)
+                else:
+                    self.send_json(payload, status)
             except ApiError as exc:
                 self.send_json({"error": str(exc)}, exc.status)
             except sqlite3.IntegrityError:
@@ -51,6 +54,19 @@ def create_handler(router: Router, static_dir: Path):
             except Exception as exc:
                 print(f"Unhandled error: {exc!r}")
                 self.send_json({"error": "伺服器暫時忙碌，請稍後再試"}, HTTPStatus.INTERNAL_SERVER_ERROR)
+
+        def send_download(self, payload: dict, status: int = 200) -> None:
+            content = payload.get("content", "").encode("utf-8")
+            filename = payload.get("filename", "export.csv")
+            content_type = payload.get("content_type", "text/csv; charset=utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+            self.send_header("Content-Length", str(len(content)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(content)
+
 
         def read_json(self) -> dict:
             try:

@@ -24,7 +24,7 @@ class MigrationTests(unittest.TestCase):
 
         self.assertEqual(first.previous_version, 0)
         self.assertEqual(first.current_version, LATEST_SCHEMA_VERSION)
-        self.assertEqual(first.applied_versions, (1, 2, 3))
+        self.assertEqual(first.applied_versions, (1, 2, 3, 4))
         self.assertIsNone(first.backup_path)
         self.assertEqual(second.applied_versions, ())
         self.assertIsNone(second.backup_path)
@@ -36,7 +36,7 @@ class MigrationTests(unittest.TestCase):
                 "SELECT name FROM sqlite_master WHERE type = 'index'"
             )}
             user_version = connection.execute("PRAGMA user_version").fetchone()[0]
-        self.assertEqual(versions, [1, 2, 3])
+        self.assertEqual(versions, [1, 2, 3, 4])
         self.assertEqual(user_version, LATEST_SCHEMA_VERSION)
         self.assertIn("idx_expenses_spent_on", indexes)
         self.assertIn("idx_expenses_category_spent_on", indexes)
@@ -84,11 +84,11 @@ class MigrationTests(unittest.TestCase):
                 "id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL)"
             )
 
-        extended = Database(self.path, migrations=(*MIGRATIONS, Migration(4, "expense_note_and_assets", extend_schema)))
+        extended = Database(self.path, migrations=(*MIGRATIONS, Migration(5, "expense_note_and_assets", extend_schema)))
         report = extended.initialize()
         repeated = extended.initialize()
 
-        self.assertEqual(report.applied_versions, (4,))
+        self.assertEqual(report.applied_versions, (5,))
         self.assertIsNotNone(report.backup_path)
         self.assertEqual(repeated.applied_versions, ())
         self.assertIsNone(repeated.backup_path)
@@ -109,14 +109,14 @@ class MigrationTests(unittest.TestCase):
             ensure_column(connection, "expenses", "temporary_field", "TEXT")
             connection.execute("INSERT INTO table_that_does_not_exist VALUES (1)")
 
-        database = Database(self.path, migrations=(*MIGRATIONS, Migration(4, "broken", broken_migration)))
+        database = Database(self.path, migrations=(*MIGRATIONS, Migration(5, "broken", broken_migration)))
         with self.assertRaises(sqlite3.OperationalError):
             database.initialize()
 
         with database.connect() as connection:
             columns = {row["name"] for row in connection.execute("PRAGMA table_info(expenses)")}
             applied = connection.execute(
-                "SELECT COUNT(*) FROM schema_migrations WHERE version = 4"
+                "SELECT COUNT(*) FROM schema_migrations WHERE version = 5"
             ).fetchone()[0]
         self.assertNotIn("temporary_field", columns)
         self.assertEqual(applied, 0)

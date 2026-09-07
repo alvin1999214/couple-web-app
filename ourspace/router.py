@@ -6,6 +6,8 @@ from typing import Callable, Pattern
 
 from .database import Database
 from .errors import ApiError
+from .services.admin import AdminService
+from .services.categories import CategoryService
 from .services.dashboard import DashboardService
 from .services.expenses import ExpenseService
 from .services.settings import SettingsService
@@ -36,6 +38,8 @@ class Router:
         shopping = ShoppingService(database)
         todos = TodoService(database)
         special_days = SpecialDayService(database)
+        categories = CategoryService(database)
+        admin = AdminService(database)
         self.settings = settings
         self.routes = [
             self._route("GET", r"/api/health", lambda p, b, q: {"status": "ok"}, setup=False),
@@ -65,7 +69,40 @@ class Router:
             self._route("PATCH", r"/api/todos/(?P<id>\d+)", lambda p, b, q: todos.update(int(p["id"]), b)),
             self._route("DELETE", r"/api/todos/(?P<id>\d+)", lambda p, b, q: todos.delete(int(p["id"]))),
             self._route("POST", r"/api/special-days", lambda p, b, q: special_days.create(b), status=201),
+            self._route("PATCH", r"/api/special-days/(?P<id>\d+)", lambda p, b, q: special_days.update(int(p["id"]), b)),
             self._route("DELETE", r"/api/special-days/(?P<id>\d+)", lambda p, b, q: special_days.delete(int(p["id"]))),
+
+            # Categories API
+            self._route("GET", r"/api/categories", lambda p, b, q: categories.list(), setup=False),
+            self._route("POST", r"/api/categories", lambda p, b, q: categories.create(b), status=201),
+            self._route("PATCH", r"/api/categories/(?P<key>[a-zA-Z0-9_\-]+)", lambda p, b, q: categories.update(p["key"], b)),
+            self._route("DELETE", r"/api/categories/(?P<key>[a-zA-Z0-9_\-]+)", lambda p, b, q: categories.delete(p["key"])),
+
+            # Admin & DB Dashboard API
+            self._route("GET", r"/api/admin/overview", lambda p, b, q: admin.overview()),
+            self._route(
+                "GET",
+                r"/api/admin/tables/(?P<table>[a-zA-Z0-9_]+)",
+                lambda p, b, q: admin.get_table(
+                    p["table"],
+                    search=self._query(q, "search") or self._query(q, "q"),
+                    filters={k: v[0] for k, v in q.items() if k not in {"search", "q", "limit", "offset"}},
+                    limit=int(self._query(q, "limit") or 200),
+                    offset=int(self._query(q, "offset") or 0),
+                ),
+            ),
+            self._route(
+                "GET",
+                r"/api/admin/export",
+                lambda p, b, q: admin.export_csv(
+                    self._query(q, "table") or "expenses",
+                    search=self._query(q, "search") or self._query(q, "q"),
+                    filters={k: v[0] for k, v in q.items() if k not in {"table", "search", "q"}},
+                ),
+            ),
+            self._route("POST", r"/api/admin/settings", lambda p, b, q: admin.create_setting(b), status=201),
+            self._route("PATCH", r"/api/admin/settings/(?P<key>[a-zA-Z0-9_\-]+)", lambda p, b, q: admin.update_setting(p["key"], b.get("value"))),
+            self._route("DELETE", r"/api/admin/settings/(?P<key>[a-zA-Z0-9_\-]+)", lambda p, b, q: admin.delete_setting(p["key"])),
         ]
 
     def dispatch(self, method: str, path: str, body: dict, query: dict) -> tuple[dict, int]:

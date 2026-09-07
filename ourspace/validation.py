@@ -46,7 +46,9 @@ def iso_date(value, *, label: str = "日期", allow_future: bool = True) -> str:
     return normalized.isoformat()
 
 
-def category(value) -> str:
+def category(value, *, valid_keys: set | None = None) -> str:
+    if valid_keys is not None:
+        return value if value in valid_keys else "other"
     return value if value in CATEGORY_META else "other"
 
 

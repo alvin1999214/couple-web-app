@@ -1,5 +1,4 @@
-from __future__ import annotations
-
+import sqlite3
 from datetime import date
 
 from .shared import Service
@@ -12,7 +11,7 @@ class ExpenseService(Service):
         with self.database.connect() as connection:
             cursor = connection.execute(
                 "INSERT INTO expenses(title, amount, category, paid_by, spent_on) VALUES (?, ?, ?, ?, ?)",
-                self._values(data),
+                self._values(data, connection),
             )
             item_id = cursor.lastrowid
         return {"ok": True, "id": item_id}
@@ -21,7 +20,7 @@ class ExpenseService(Service):
         with self.database.connect() as connection:
             cursor = connection.execute(
                 "UPDATE expenses SET title = ?, amount = ?, category = ?, paid_by = ?, spent_on = ? WHERE id = ?",
-                (*self._values(data), item_id),
+                (*self._values(data, connection), item_id),
             )
             if not cursor.rowcount:
                 raise ApiError("找不到開支", 404)
@@ -35,11 +34,18 @@ class ExpenseService(Service):
         return {"ok": True}
 
     @staticmethod
-    def _values(data: dict) -> tuple:
+    def _values(data: dict, connection: sqlite3.Connection | None = None) -> tuple:
+        valid_keys = None
+        if connection is not None:
+            try:
+                valid_keys = {row[0] for row in connection.execute("SELECT key FROM categories")}
+            except sqlite3.OperationalError:
+                pass
         return (
             text(data.get("title"), label="開支名稱"),
             number(data.get("amount")),
-            category(data.get("category", "other")),
+            category(data.get("category", "other"), valid_keys=valid_keys),
             text(data.get("paid_by", "共同"), max_length=30, label="付款人"),
             iso_date(data.get("spent_on") or date.today().isoformat()),
         )
+

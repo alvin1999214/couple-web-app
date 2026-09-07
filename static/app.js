@@ -7,15 +7,38 @@ document.documentElement.classList.toggle(
   window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true,
 );
 
-const categories = {
-  groceries: { label: "日常購物", color: "#ff8e7a" },
-  dining: { label: "外出用餐", color: "#f6bd61" },
-  home: { label: "居家生活", color: "#8ec5a7" },
-  utilities: { label: "水電煤", color: "#9ba5e8" },
-  transport: { label: "交通", color: "#62b3c4" },
-  leisure: { label: "約會娛樂", color: "#d99cc8" },
-  other: { label: "其他", color: "#a8a59e" },
+let categories = {
+  groceries: { label: "日常購物", color: "#ff8e7a", icon: "basket", is_default: 1 },
+  dining: { label: "外出用餐", color: "#f6bd61", icon: "utensils", is_default: 1 },
+  home: { label: "居家生活", color: "#8ec5a7", icon: "home", is_default: 1 },
+  utilities: { label: "水電煤", color: "#9ba5e8", icon: "bolt", is_default: 1 },
+  transport: { label: "交通", color: "#62b3c4", icon: "train", is_default: 1 },
+  leisure: { label: "約會娛樂", color: "#d99cc8", icon: "sparkles", is_default: 1 },
+  other: { label: "其他", color: "#a8a59e", icon: "dots", is_default: 1 },
 };
+
+function syncCategories(list) {
+  if (Array.isArray(list) && list.length) {
+    list.forEach((c) => {
+      categories[c.key] = {
+        label: c.label,
+        color: c.color || "#a8a59e",
+        icon: c.icon || "dots",
+        is_default: c.is_default,
+      };
+    });
+    updateCategoryDropdowns();
+  }
+}
+
+function updateCategoryDropdowns() {
+  const select = $("#expense-category-filter");
+  if (!select) return;
+  const current = select.value;
+  select.innerHTML = '<option value="all">全部類別</option>' + Object.entries(categories).map(([k, v]) => `<option value="${esc(k)}">${esc(v.label)}</option>`).join("");
+  if (categories[current] || current === "all") select.value = current;
+}
+
 
 const widgetMeta = {
   budget: { title: "本月共同開支", icon: "wallet" },
@@ -133,6 +156,7 @@ async function loadDashboard({ quiet = false } = {}) {
       return;
     }
     state.data = data;
+    if (data.categories) syncCategories(data.categories);
     state.month = data.month;
     state.period = data.filter?.period || "month";
     state.category = data.filter?.category || "all";
@@ -140,6 +164,7 @@ async function loadDashboard({ quiet = false } = {}) {
     updateIdentity();
     setupTime();
     renderDashboard();
+
   } catch (error) {
     if (sequence !== state.loadSequence) return;
     if (!quiet) {
@@ -498,6 +523,126 @@ const forms = {
     ],
     transform: (data) => ({ monthly_budget: Number(data.monthly_budget), couple_names: [data.partner_one, data.partner_two], started_on: data.started_on }),
   },
+  categoryCreate: {
+    title: "新增記帳分類",
+    endpoint: "/api/categories",
+    success: "已成功新增分類",
+    fields: () => [
+      { name: "key", label: "分類代碼（英文小寫與數字，如 pet）", placeholder: "例如：pet, travel", full: true, required: true, autofocus: true },
+      { name: "label", label: "分類名稱（如 毛孩日常、旅遊度假）", placeholder: "例如：毛孩日常", full: true, required: true },
+      { name: "color", label: "代表顏色", type: "color", value: "#ed765f" },
+      {
+        name: "icon",
+        label: "圖示標籤",
+        type: "select",
+        options: [
+          ["tag", "標籤 🏷️"],
+          ["spark", "閃光 ✨"],
+          ["cart", "購物車 🛒"],
+          ["wallet", "錢包 👛"],
+          ["utensils", "餐具 🍽️"],
+          ["home", "居家 🏡"],
+          ["train", "交通 🚆"],
+          ["bolt", "水電 ⚡"],
+          ["check", "勾選 ✔️"],
+          ["calendar", "日曆 📅"],
+          ["bell", "鈴鐺 🔔"],
+          ["gift", "禮物 🎁"],
+          ["dots", "更多 ⋯"],
+        ],
+        value: "tag",
+      },
+    ],
+  },
+  categoryEdit: {
+    title: "編輯記帳分類",
+    endpoint: (item) => `/api/categories/${encodeURIComponent(item.key)}`,
+    method: "PATCH",
+    success: "分類資料已更新",
+    submitLabel: "儲存變更",
+    fields: ({ item = {} } = {}) => [
+      { name: "key", label: "分類代碼 (不可修改)", value: item.key, full: true, disabled: true },
+      { name: "label", label: "分類名稱", value: item.label || "", full: true, required: true, autofocus: true },
+      { name: "color", label: "代表顏色", type: "color", value: item.color || "#a8a59e" },
+      {
+        name: "icon",
+        label: "圖示標籤",
+        type: "select",
+        options: [
+          ["tag", "標籤 🏷️"],
+          ["spark", "閃光 ✨"],
+          ["cart", "購物車 🛒"],
+          ["wallet", "錢包 👛"],
+          ["utensils", "餐具 🍽️"],
+          ["home", "居家 🏡"],
+          ["train", "交通 🚆"],
+          ["bolt", "水電 ⚡"],
+          ["check", "勾選 ✔️"],
+          ["calendar", "日曆 📅"],
+          ["bell", "鈴鐺 🔔"],
+          ["gift", "禮物 🎁"],
+          ["dots", "更多 ⋯"],
+        ],
+        value: item.icon || "tag",
+      },
+    ],
+  },
+  adminSettingCreate: {
+    title: "新增系統參數",
+    endpoint: "/api/admin/settings",
+    success: "系統參數已新增",
+    fields: () => [
+      { name: "key", label: "參數名稱 Key", placeholder: "例如：custom_note_prefix", full: true, required: true, autofocus: true },
+      { name: "value", label: "參數數值 Value（文字、數字或有效 JSON）", placeholder: "例如：100 或 true 或 \"字串\"", full: true, required: true },
+    ],
+    transform: (data) => {
+      let parsed = data.value;
+      try { parsed = JSON.parse(data.value); } catch (_) {}
+      return { key: data.key, value: parsed };
+    },
+  },
+  adminSettingEdit: {
+    title: "編輯系統參數",
+    endpoint: (item) => `/api/admin/settings/${encodeURIComponent(item.key)}`,
+    method: "PATCH",
+    success: "系統參數已更新",
+    submitLabel: "儲存變更",
+    fields: ({ item = {} } = {}) => [
+      { name: "key", label: "參數名稱 (不可修改)", value: item.key, full: true, disabled: true },
+      { name: "value", label: "參數數值 Value（支援文字、數字或 JSON）", value: typeof item.parsed_value === "object" ? JSON.stringify(item.parsed_value) : (item.value ?? ""), full: true, required: true, autofocus: true },
+    ],
+    transform: (data) => {
+      let parsed = data.value;
+      try { parsed = JSON.parse(data.value); } catch (_) {}
+      return { value: parsed };
+    },
+  },
+  todoEdit: {
+    title: "編輯日常待辦",
+    endpoint: (item) => `/api/todos/${item.id}`,
+    method: "PATCH",
+    success: "待辦已更新",
+    submitLabel: "儲存變更",
+    fields: ({ item = {} } = {}) => [
+      { name: "title", label: "要完成甚麼？", value: item.title || "", full: true, required: true, autofocus: true },
+      { name: "assignee", label: "由誰負責？", type: "select", options: [...state.data.settings.couple_names, "一起"].map((name) => [name, name]), value: item.assignee || "一起" },
+      { name: "due_date", label: "期限", type: "date", value: item.due_date || "" },
+    ],
+  },
+  specialDayEdit: {
+    title: "編輯特別日子",
+    endpoint: (item) => `/api/special-days/${item.id}`,
+    method: "PATCH",
+    success: "特別日子已更新",
+    submitLabel: "儲存變更",
+    fields: ({ item = {} } = {}) => [
+      { name: "title", label: "這是甚麼日子？", value: item.title || "", full: true, required: true, autofocus: true },
+      { name: "event_date", label: "日期", type: "date", value: item.event_date, required: true },
+      { name: "emoji", label: "小記號", value: item.emoji || "♥", maxlength: "8" },
+      { name: "repeats_yearly", label: "每年提醒", type: "select", options: [["true", "每年提醒"], ["false", "只提醒一次"]], value: String(Boolean(item.repeats_yearly)), full: true },
+    ],
+    transform: (data) => ({ ...data, repeats_yearly: data.repeats_yearly === "true" }),
+  },
 };
 
 function categoryOptions() {
@@ -554,17 +699,20 @@ function openShoppingCompletion(itemId) {
 }
 
 function renderField(field) {
-  const attrs = ["required", "autofocus"].filter((key) => field[key]).join(" ");
+  const attrs = ["required", "autofocus", "disabled"].filter((key) => field[key]).join(" ");
   const value = field.value ?? "";
   let control;
   if (field.type === "select") {
     control = `<select name="${field.name}" ${attrs}>${field.options.map(([optionValue, label]) => `<option value="${esc(optionValue)}" ${String(optionValue) === String(value) ? "selected" : ""}>${esc(label)}</option>`).join("")}</select>`;
+  } else if (field.type === "textarea") {
+    control = `<textarea name="${field.name}" ${attrs} rows="3" placeholder="${esc(field.placeholder || "")}">${esc(value)}</textarea>`;
   } else {
     const properties = ["min", "max", "step", "maxlength"].filter((key) => field[key] !== undefined).map((key) => `${key}="${esc(field[key])}"`).join(" ");
     control = `<input name="${field.name}" type="${field.type || "text"}" value="${esc(value)}" placeholder="${esc(field.placeholder || "")}" ${properties} ${attrs}>`;
   }
   return `<div class="field ${field.full ? "full" : ""}" ${field.group ? `data-split-group="${field.group}"` : ""}><label for="field-${field.name}">${field.label}</label>${control.replace(`name="${field.name}"`, `id="field-${field.name}" name="${field.name}"`)}</div>`;
 }
+
 
 function updateSplitCalculator() {
   const form = $("#dynamic-form");
@@ -642,6 +790,10 @@ async function submitForm(event) {
     closeModal();
     toast(form.dataset.success);
     await loadDashboard({ quiet: true });
+    if ($("#admin-view") && !$("#admin-view").hidden) {
+      await loadAdminTable(adminState.currentTable);
+      await loadAdminOverview();
+    }
   } catch (error) {
     toast(error.message, true);
     button.disabled = false;
@@ -658,6 +810,10 @@ async function toggleTodo(id, value, button) {
     if (value) celebrate(button);
     toast(value ? "完成一件生活小事" : "已恢復項目");
     await loadDashboard({ quiet: true });
+    if ($("#admin-view") && !$("#admin-view").hidden) {
+      await loadAdminTable(adminState.currentTable);
+      await loadAdminOverview();
+    }
   } catch (error) {
     button.disabled = false;
     toast(error.message, true);
@@ -670,6 +826,10 @@ async function clearCompletedShopping() {
     const result = await api("/api/shopping/completed", { method: "DELETE" });
     toast(`已清理 ${result.removed} 個項目，開支紀錄已保留`);
     await loadDashboard({ quiet: true });
+    if ($("#admin-view") && !$("#admin-view").hidden) {
+      await loadAdminTable(adminState.currentTable);
+      await loadAdminOverview();
+    }
   } catch (error) {
     toast(error.message, true);
   }
@@ -681,11 +841,16 @@ async function deleteItem(type, id, button) {
     await api(`/api/${type}/${id}`, { method: "DELETE" });
     toast("已經移除了");
     await loadDashboard({ quiet: true });
+    if ($("#admin-view") && !$("#admin-view").hidden) {
+      await loadAdminTable(adminState.currentTable);
+      await loadAdminOverview();
+    }
   } catch (error) {
     button.disabled = false;
     toast(error.message, true);
   }
 }
+
 
 function toast(message, error = false) {
   const element = document.createElement("div");
@@ -805,6 +970,527 @@ function applyExpenseFilters({ month = state.month, period = state.period, categ
   loadDashboard({ quiet: true });
 }
 
+/* ==========================================================================
+   Admin & Parameter Dashboard Controller
+   ========================================================================== */
+
+const adminState = {
+  currentTable: "categories",
+  search: "",
+  filters: {},
+  overview: null,
+  tableData: null,
+  loading: false,
+  debounceTimer: null,
+};
+
+function switchView(viewName) {
+  const isLiving = viewName !== "admin";
+  const living = $("#living-view");
+  const admin = $("#admin-view");
+  if (!living || !admin) return;
+
+  living.hidden = !isLiving;
+  admin.hidden = isLiving;
+
+  $$(".side-nav .nav-link").forEach((link) => {
+    link.classList.toggle("active", isLiving ? link.dataset.section === "dashboard" : link.dataset.section === "admin");
+  });
+  $$(".mobile-nav a").forEach((link) => {
+    link.classList.toggle("active", isLiving ? link.dataset.section === "dashboard" : link.dataset.section === "admin");
+  });
+
+  if (!isLiving) {
+    if (location.hash !== "#admin") history.replaceState(null, "", "#admin");
+    initAdminDashboard();
+  } else {
+    if (location.hash === "#admin") history.replaceState(null, "", "#top");
+  }
+}
+
+async function initAdminDashboard() {
+  await loadAdminOverview();
+  await loadAdminTable(adminState.currentTable);
+}
+
+async function loadAdminOverview() {
+  try {
+    const data = await api("/api/admin/overview");
+    adminState.overview = data;
+    renderAdminMetrics(data);
+    if (data.counts) {
+      Object.entries(data.counts).forEach(([tableName, count]) => {
+        const badge = $(`#badge-${tableName}`);
+        if (badge) badge.textContent = count;
+      });
+    }
+  } catch (err) {
+    console.error("Failed to load admin overview", err);
+  }
+}
+
+function renderAdminMetrics(data) {
+  const container = $("#admin-metrics-grid");
+  if (!container || !data) return;
+  const c = data.counts || {};
+  container.innerHTML = `
+    <div class="admin-metric-card" style="--accent: var(--coral);">
+      <div class="metric-icon"><svg><use href="#i-tag"/></svg></div>
+      <div class="metric-body">
+        <span class="metric-label">記帳分類總數</span>
+        <strong class="metric-value">${c.categories || 0} 個</strong>
+        <small class="metric-sub">${data.custom_categories_count || 0} 個自訂分類</small>
+      </div>
+    </div>
+    <div class="admin-metric-card" style="--accent: var(--yellow);">
+      <div class="metric-icon"><svg><use href="#i-wallet"/></svg></div>
+      <div class="metric-body">
+        <span class="metric-label">共同開支紀錄</span>
+        <strong class="metric-value">${money(data.total_expense_amount || 0)}</strong>
+        <small class="metric-sub">累計記錄 ${data.total_expense_count || 0} 筆開支</small>
+      </div>
+    </div>
+    <div class="admin-metric-card" style="--accent: var(--green);">
+      <div class="metric-icon"><svg><use href="#i-cart"/></svg></div>
+      <div class="metric-body">
+        <span class="metric-label">購物清單項目</span>
+        <strong class="metric-value">${c.shopping_items || 0} 項</strong>
+        <small class="metric-sub">待購與已完成項目</small>
+      </div>
+    </div>
+    <div class="admin-metric-card" style="--accent: var(--purple);">
+      <div class="metric-icon"><svg><use href="#i-check"/></svg></div>
+      <div class="metric-body">
+        <span class="metric-label">日常待辦事項</span>
+        <strong class="metric-value">${c.todos || 0} 件</strong>
+        <small class="metric-sub">未完成與歷史待辦</small>
+      </div>
+    </div>
+    <div class="admin-metric-card" style="--accent: #5e9ddb;">
+      <div class="metric-icon"><svg><use href="#i-sliders"/></svg></div>
+      <div class="metric-body">
+        <span class="metric-label">系統設定參數</span>
+        <strong class="metric-value">${c.settings || 0} 項</strong>
+        <small class="metric-sub">預算、分帳、交往紀念日</small>
+      </div>
+    </div>
+    <div class="admin-metric-card" style="--accent: #78a186;">
+      <div class="metric-icon"><svg><use href="#i-database"/></svg></div>
+      <div class="metric-body">
+        <span class="metric-label">SQLite 資料庫</span>
+        <strong class="metric-value">${data.db_size_formatted || "運作中"}</strong>
+        <small class="metric-sub">Schema v${data.schema_version} · WAL 模式</small>
+      </div>
+    </div>
+  `;
+}
+
+async function loadAdminTable(tableName) {
+  adminState.currentTable = tableName;
+  const container = $("#admin-table-container");
+  if (container) {
+    container.innerHTML = '<div class="admin-loading-indicator"><div class="skeleton-card" style="height:200px;margin:16px;"></div></div>';
+  }
+
+  $$(".admin-tab").forEach((tab) => {
+    tab.classList.toggle("active", tab.dataset.adminTable === tableName);
+  });
+
+  const labels = {
+    categories: "新增分類",
+    settings: "新增參數",
+    expenses: "記一筆開支",
+    shopping_items: "新增購物項目",
+    todos: "新增待辦",
+    special_days: "收藏特別日子",
+  };
+  const addLabel = $("#admin-add-label");
+  if (addLabel) addLabel.textContent = labels[tableName] || "新增紀錄";
+
+  renderAdminContextFilters(tableName);
+
+  const params = new URLSearchParams({ limit: "300" });
+  if (adminState.search) params.append("search", adminState.search);
+  Object.entries(adminState.filters).forEach(([k, v]) => {
+    if (v && v !== "all") params.append(k, v);
+  });
+
+  try {
+    const data = await api(`/api/admin/tables/${tableName}?${params}`);
+    adminState.tableData = data;
+    renderAdminTable(data);
+    const summary = $("#admin-count-summary");
+    if (summary) {
+      summary.textContent = `共 ${data.total} 筆紀錄${adminState.search || Object.keys(adminState.filters).length ? "（已套用篩選）" : ""}`;
+    }
+  } catch (err) {
+    if (container) {
+      container.innerHTML = `<div class="empty-state"><span>!</span><p>${esc(err.message)}</p></div>`;
+    }
+  }
+}
+
+function renderAdminContextFilters(tableName) {
+  const container = $("#admin-context-filters");
+  if (!container) return;
+
+  if (tableName === "categories") {
+    container.innerHTML = `
+      <select id="admin-filter-cat-type" class="admin-filter-select" aria-label="分類類型篩選">
+        <option value="all">全部分類類型</option>
+        <option value="default" ${adminState.filters.type === "default" ? "selected" : ""}>系統預設</option>
+        <option value="custom" ${adminState.filters.type === "custom" ? "selected" : ""}>自訂分類</option>
+      </select>
+    `;
+  } else if (tableName === "expenses") {
+    container.innerHTML = `
+      <select id="admin-filter-category" class="admin-filter-select" aria-label="開支分類篩選">
+        <option value="all">全部開支分類</option>
+        ${Object.entries(categories).map(([k, v]) => `<option value="${esc(k)}" ${adminState.filters.category === k ? "selected" : ""}>${esc(v.label)}</option>`).join("")}
+      </select>
+      <select id="admin-filter-payer" class="admin-filter-select" aria-label="付款人篩選">
+        <option value="all">全部付款人</option>
+        ${state.data?.settings?.couple_names ? state.data.settings.couple_names.map((name) => `<option value="${esc(name)}" ${adminState.filters.paid_by === name ? "selected" : ""}>${esc(name)}</option>`).join("") : ""}
+        <option value="共同" ${adminState.filters.paid_by === "共同" ? "selected" : ""}>共同</option>
+      </select>
+    `;
+  } else if (tableName === "shopping_items") {
+    container.innerHTML = `
+      <select id="admin-filter-purchased" class="admin-filter-select" aria-label="購買狀態篩選">
+        <option value="all">全部狀態</option>
+        <option value="0" ${adminState.filters.purchased === "0" ? "selected" : ""}>待購買</option>
+        <option value="1" ${adminState.filters.purchased === "1" ? "selected" : ""}>已入帳完成</option>
+      </select>
+    `;
+  } else if (tableName === "todos") {
+    container.innerHTML = `
+      <select id="admin-filter-done" class="admin-filter-select" aria-label="待辦狀態篩選">
+        <option value="all">全部狀態</option>
+        <option value="0" ${adminState.filters.done === "0" ? "selected" : ""}>進行中</option>
+        <option value="1" ${adminState.filters.done === "1" ? "selected" : ""}>已完成</option>
+      </select>
+    `;
+  } else if (tableName === "special_days") {
+    container.innerHTML = `
+      <select id="admin-filter-repeats" class="admin-filter-select" aria-label="重複規則篩選">
+        <option value="all">全部提醒模式</option>
+        <option value="1" ${adminState.filters.repeats_yearly === "1" ? "selected" : ""}>每年提醒</option>
+        <option value="0" ${adminState.filters.repeats_yearly === "0" ? "selected" : ""}>單次提醒</option>
+      </select>
+    `;
+  } else {
+    container.innerHTML = "";
+  }
+}
+
+function renderAdminTable(data) {
+  const container = $("#admin-table-container");
+  if (!container) return;
+
+  const rows = data.rows || [];
+  if (!rows.length) {
+    container.innerHTML = emptyState("此資料表目前沒有符合條件的資料", "⌁");
+    return;
+  }
+
+  const table = data.table;
+  let theadHtml = "";
+  let tbodyHtml = "";
+
+  if (table === "categories") {
+    theadHtml = `
+      <tr>
+        <th style="width: 140px;">代碼 (Key)</th>
+        <th>名稱</th>
+        <th style="width: 100px;">圖示</th>
+        <th style="width: 130px;">代表色</th>
+        <th style="width: 110px;">類型</th>
+        <th style="width: 150px;">關聯開支</th>
+        <th style="width: 110px;">操作</th>
+      </tr>
+    `;
+    tbodyHtml = rows.map((cat) => `
+      <tr>
+        <td><code>${esc(cat.key)}</code></td>
+        <td><strong>${esc(cat.label)}</strong></td>
+        <td><span class="admin-icon-tag"><svg><use href="#i-${esc(cat.icon || "dots")}"/></svg> ${esc(cat.icon || "dots")}</span></td>
+        <td>
+          <div class="admin-color-chip">
+            <span class="color-swatch" style="background:${esc(cat.color)};"></span>
+            <code>${esc(cat.color)}</code>
+          </div>
+        </td>
+        <td>
+          ${cat.is_default
+            ? '<span class="admin-badge system">系統預設</span>'
+            : '<span class="admin-badge custom">自訂分類</span>'}
+        </td>
+        <td><span class="admin-count-pill">${cat.expense_count || 0} 筆開支 · ${cat.shopping_count || 0} 項購物</span></td>
+        <td>
+          <div class="admin-row-actions">
+            <button type="button" class="icon-button edit" data-admin-edit="categories" data-id="${esc(cat.key)}" title="編輯分類">${icon("edit")}</button>
+            ${cat.is_default ? "" : `<button type="button" class="icon-button delete" data-admin-delete="categories" data-id="${esc(cat.key)}" title="刪除分類">${icon("trash")}</button>`}
+          </div>
+        </td>
+      </tr>
+    `).join("");
+  } else if (table === "settings") {
+    theadHtml = `
+      <tr>
+        <th style="width: 220px;">參數鍵名 (Key)</th>
+        <th>目前數值 (Value)</th>
+        <th style="width: 110px;">操作</th>
+      </tr>
+    `;
+    const protectedKeys = new Set(["onboarding_complete", "couple_names", "monthly_budget", "started_on"]);
+    tbodyHtml = rows.map((setting) => {
+      const isProtected = protectedKeys.has(setting.key);
+      const valStr = typeof setting.parsed_value === "object"
+        ? JSON.stringify(setting.parsed_value, null, 2)
+        : String(setting.value ?? "");
+      return `
+        <tr>
+          <td>
+            <strong>${esc(setting.key)}</strong>
+            ${isProtected ? '<span class="admin-badge system">核心</span>' : '<span class="admin-badge custom">自訂</span>'}
+          </td>
+          <td><pre class="admin-json-preview">${esc(valStr)}</pre></td>
+          <td>
+            <div class="admin-row-actions">
+              <button type="button" class="icon-button edit" data-admin-edit="settings" data-id="${esc(setting.key)}" title="編輯參數">${icon("edit")}</button>
+              ${isProtected ? "" : `<button type="button" class="icon-button delete" data-admin-delete="settings" data-id="${esc(setting.key)}" title="刪除參數">${icon("trash")}</button>`}
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join("");
+  } else if (table === "expenses") {
+    theadHtml = `
+      <tr>
+        <th style="width: 60px;">ID</th>
+        <th>開支項目</th>
+        <th style="width: 120px;">金額</th>
+        <th style="width: 130px;">分類</th>
+        <th style="width: 100px;">付款人</th>
+        <th style="width: 120px;">日期</th>
+        <th style="width: 100px;">操作</th>
+      </tr>
+    `;
+    tbodyHtml = rows.map((item) => {
+      const meta = categories[item.category] || categories.other || { label: item.category, color: "#a8a59e" };
+      return `
+        <tr>
+          <td><small class="admin-id">#${item.id}</small></td>
+          <td><strong>${esc(item.title)}</strong></td>
+          <td><strong class="admin-amount">${money(item.amount)}</strong></td>
+          <td>
+            <span class="admin-cat-pill" style="--cat-color:${meta.color}">
+              <span class="dot"></span>${esc(meta.label || item.category)}
+            </span>
+          </td>
+          <td><span class="admin-badge payer">${esc(item.paid_by)}</span></td>
+          <td><small>${esc(item.spent_on)}</small></td>
+          <td>
+            <div class="admin-row-actions">
+              <button type="button" class="icon-button edit" data-admin-edit="expenses" data-id="${item.id}" title="編輯開支">${icon("edit")}</button>
+              <button type="button" class="icon-button delete" data-admin-delete="expenses" data-id="${item.id}" title="刪除開支">${icon("trash")}</button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join("");
+  } else if (table === "shopping_items") {
+    theadHtml = `
+      <tr>
+        <th style="width: 60px;">ID</th>
+        <th>物品名稱</th>
+        <th style="width: 90px;">數量</th>
+        <th style="width: 130px;">分類</th>
+        <th style="width: 110px;">狀態</th>
+        <th style="width: 100px;">操作</th>
+      </tr>
+    `;
+    tbodyHtml = rows.map((item) => {
+      const meta = categories[item.category] || categories.other || { label: item.category, color: "#a8a59e" };
+      return `
+        <tr>
+          <td><small class="admin-id">#${item.id}</small></td>
+          <td><strong>${esc(item.name)}</strong></td>
+          <td>${item.quantity}</td>
+          <td>
+            <span class="admin-cat-pill" style="--cat-color:${meta.color}">
+              <span class="dot"></span>${esc(meta.label || item.category)}
+            </span>
+          </td>
+          <td>
+            ${item.purchased
+              ? '<span class="admin-badge done">已入帳</span>'
+              : '<span class="admin-badge pending">待購買</span>'}
+          </td>
+          <td>
+            <div class="admin-row-actions">
+              <button type="button" class="icon-button edit" data-admin-edit="shopping_items" data-id="${item.id}" title="編輯購物項目">${icon("edit")}</button>
+              <button type="button" class="icon-button delete" data-admin-delete="shopping_items" data-id="${item.id}" title="刪除購物項目">${icon("trash")}</button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join("");
+  } else if (table === "todos") {
+    theadHtml = `
+      <tr>
+        <th style="width: 60px;">ID</th>
+        <th>待辦事項</th>
+        <th style="width: 110px;">負責人</th>
+        <th style="width: 120px;">到期日</th>
+        <th style="width: 110px;">狀態</th>
+        <th style="width: 100px;">操作</th>
+      </tr>
+    `;
+    tbodyHtml = rows.map((item) => `
+      <tr>
+        <td><small class="admin-id">#${item.id}</small></td>
+        <td><strong>${esc(item.title)}</strong></td>
+        <td><span class="admin-badge payer">${esc(item.assignee)}</span></td>
+        <td><small>${shortDate(item.due_date)}</small></td>
+        <td>
+          ${item.done
+            ? '<span class="admin-badge done">已完成</span>'
+            : '<span class="admin-badge pending">進行中</span>'}
+        </td>
+        <td>
+          <div class="admin-row-actions">
+            <button type="button" class="icon-button edit" data-admin-edit="todos" data-id="${item.id}" title="編輯待辦">${icon("edit")}</button>
+            <button type="button" class="icon-button delete" data-admin-delete="todos" data-id="${item.id}" title="刪除待辦">${icon("trash")}</button>
+          </div>
+        </td>
+      </tr>
+    `).join("");
+  } else if (table === "special_days") {
+    theadHtml = `
+      <tr>
+        <th style="width: 60px;">ID</th>
+        <th style="width: 60px;">記號</th>
+        <th>特別日子</th>
+        <th style="width: 130px;">日期</th>
+        <th style="width: 110px;">每年重複</th>
+        <th style="width: 100px;">操作</th>
+      </tr>
+    `;
+    tbodyHtml = rows.map((item) => `
+      <tr>
+        <td><small class="admin-id">#${item.id}</small></td>
+        <td><span style="font-size: 18px;">${esc(item.emoji)}</span></td>
+        <td><strong>${esc(item.title)}</strong></td>
+        <td><small>${esc(item.event_date)}</small></td>
+        <td>${item.repeats_yearly ? '<span class="admin-badge system">每年</span>' : '<span class="admin-badge">單次</span>'}</td>
+        <td>
+          <div class="admin-row-actions">
+            <button type="button" class="icon-button edit" data-admin-edit="special_days" data-id="${item.id}" title="編輯日子">${icon("edit")}</button>
+            <button type="button" class="icon-button delete" data-admin-delete="special_days" data-id="${item.id}" title="刪除日子">${icon("trash")}</button>
+          </div>
+        </td>
+      </tr>
+    `).join("");
+  }
+
+  container.innerHTML = `
+    <table class="admin-data-table">
+      <thead>${theadHtml}</thead>
+      <tbody>${tbodyHtml}</tbody>
+    </table>
+  `;
+}
+
+async function exportCurrentTableToExcel() {
+  const table = adminState.currentTable;
+  const search = adminState.search;
+  const params = new URLSearchParams({ table });
+  if (search) params.append("search", search);
+  Object.entries(adminState.filters).forEach(([k, v]) => {
+    if (v && v !== "all") params.append(k, v);
+  });
+
+  try {
+    toast("正在匯出 Excel 格式資料…");
+    const response = await fetch(`/api/admin/export?${params}`);
+    if (!response.ok) throw new Error("匯出失敗，請稍後再試");
+    const blob = await response.blob();
+    const disposition = response.headers.get("Content-Disposition");
+    let filename = `teletubbyland-${table}-${localISODate()}.csv`;
+    if (disposition && disposition.includes("filename=")) {
+      filename = disposition.split("filename=")[1].replace(/["']/g, "").trim();
+    }
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+    toast(`已成功匯出 ${filename}`);
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+function openAdminAdd() {
+  const table = adminState.currentTable;
+  if (table === "categories") openModal("categoryCreate");
+  else if (table === "settings") openModal("adminSettingCreate");
+  else if (table === "expenses") openModal("expense");
+  else if (table === "shopping_items") openModal("shopping");
+  else if (table === "todos") openModal("todo");
+  else if (table === "special_days") openModal("event");
+}
+
+function openAdminEdit(table, idOrKey) {
+  if (table === "categories") {
+    const item = adminState.tableData?.rows?.find((r) => r.key === idOrKey) || { key: idOrKey, label: categories[idOrKey]?.label || idOrKey };
+    openModal("categoryEdit", { item });
+  } else if (table === "settings") {
+    const item = adminState.tableData?.rows?.find((r) => r.key === idOrKey) || { key: idOrKey, value: "" };
+    openModal("adminSettingEdit", { item });
+  } else if (table === "expenses") {
+    openExpenseEditor(idOrKey);
+  } else if (table === "shopping_items") {
+    openShoppingEditor(idOrKey);
+  } else if (table === "todos") {
+    const item = adminState.tableData?.rows?.find((r) => String(r.id) === String(idOrKey));
+    if (item) openModal("todoEdit", { item });
+  } else if (table === "special_days") {
+    const item = adminState.tableData?.rows?.find((r) => String(r.id) === String(idOrKey));
+    if (item) openModal("specialDayEdit", { item });
+  }
+}
+
+async function deleteAdminEntry(table, idOrKey) {
+  let confirmMsg = `確定要刪除這筆資料嗎？`;
+  if (table === "categories") {
+    confirmMsg = `確定要刪除自訂分類「${idOrKey}」嗎？\n\n注意：原先使用此分類的開支與購物項目會自動轉移至「其他」，不會遺失。`;
+  } else if (table === "settings") {
+    confirmMsg = `確定要刪除系統參數「${idOrKey}」嗎？`;
+  }
+  if (!window.confirm(confirmMsg)) return;
+
+  try {
+    if (table === "categories") {
+      await api(`/api/categories/${encodeURIComponent(idOrKey)}`, { method: "DELETE" });
+    } else if (table === "settings") {
+      await api(`/api/admin/settings/${encodeURIComponent(idOrKey)}`, { method: "DELETE" });
+    } else {
+      await api(`/api/${table}/${idOrKey}`, { method: "DELETE" });
+    }
+    toast("已成功刪除");
+    await loadDashboard({ quiet: true });
+    await loadAdminTable(adminState.currentTable);
+    await loadAdminOverview();
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
 function bindEvents() {
   document.addEventListener("click", (event) => {
     const periodButton = event.target.closest("[data-expense-period]");
@@ -818,6 +1504,56 @@ function bindEvents() {
 
     if (event.target.closest("#reset-expense-filter")) {
       return applyExpenseFilters({ month: localMonth(), period: "month", category: "all" });
+    }
+
+    // Navigation switching
+    const navLink = event.target.closest("[data-section]");
+    if (navLink) {
+      const section = navLink.dataset.section;
+      if (section === "admin") {
+        return switchView("admin");
+      } else {
+        return switchView("living");
+      }
+    }
+
+    if (event.target.closest("#admin-back-to-app")) {
+      return switchView("living");
+    }
+
+    if (event.target.closest("#admin-refresh-btn")) {
+      initAdminDashboard();
+      return toast("已重新整理資料庫數據");
+    }
+
+    const adminTab = event.target.closest("[data-admin-table]");
+    if (adminTab) {
+      return loadAdminTable(adminTab.dataset.adminTable);
+    }
+
+    if (event.target.closest("#admin-export-excel")) {
+      return exportCurrentTableToExcel();
+    }
+
+    if (event.target.closest("#admin-add-entry-btn")) {
+      return openAdminAdd();
+    }
+
+    const adminEdit = event.target.closest("[data-admin-edit]");
+    if (adminEdit) {
+      return openAdminEdit(adminEdit.dataset.adminEdit, adminEdit.dataset.id);
+    }
+
+    const adminDelete = event.target.closest("[data-admin-delete]");
+    if (adminDelete) {
+      return deleteAdminEntry(adminDelete.dataset.adminDelete, adminDelete.dataset.id);
+    }
+
+    if (event.target.closest("#admin-clear-search")) {
+      adminState.search = "";
+      $("#admin-search-input").value = "";
+      $("#admin-clear-search").hidden = true;
+      return loadAdminTable(adminState.currentTable);
     }
 
     const modalButton = event.target.closest("[data-open-modal]");
@@ -867,7 +1603,29 @@ function bindEvents() {
     if (event.target.id === "expense-category-filter") {
       applyExpenseFilters({ category: event.target.value });
     }
+    if (event.target.closest("#admin-context-filters")) {
+      const select = event.target;
+      if (select.id === "admin-filter-cat-type") adminState.filters.type = select.value;
+      if (select.id === "admin-filter-category") adminState.filters.category = select.value;
+      if (select.id === "admin-filter-payer") adminState.filters.paid_by = select.value;
+      if (select.id === "admin-filter-purchased") adminState.filters.purchased = select.value;
+      if (select.id === "admin-filter-done") adminState.filters.done = select.value;
+      if (select.id === "admin-filter-repeats") adminState.filters.repeats_yearly = select.value;
+      loadAdminTable(adminState.currentTable);
+    }
   });
+
+  document.addEventListener("input", (event) => {
+    if (event.target.id === "admin-search-input") {
+      clearTimeout(adminState.debounceTimer);
+      adminState.debounceTimer = setTimeout(() => {
+        adminState.search = event.target.value.trim();
+        $("#admin-clear-search").hidden = !adminState.search;
+        loadAdminTable(adminState.currentTable);
+      }, 250);
+    }
+  });
+
   ["input", "change"].forEach((eventName) => document.addEventListener(eventName, (event) => {
     if (event.target.closest("#dynamic-form")?.dataset.formType === "split") updateSplitCalculator();
   }));
@@ -875,10 +1633,13 @@ function bindEvents() {
     if (event.key === "Escape" && !$("#modal-backdrop").hidden) closeModal();
   });
 
-  $$(".nav-link[data-section]").forEach((link) => link.addEventListener("click", () => {
-    $$(".nav-link[data-section]").forEach((item) => item.classList.remove("active"));
-    link.classList.add("active");
-  }));
+  window.addEventListener("hashchange", () => {
+    if (location.hash === "#admin" || location.hash === "#params") {
+      switchView("admin");
+    } else if (state.data?.configured && !$("#admin-view").hidden) {
+      switchView("living");
+    }
+  });
 }
 
 function setupTime() {
@@ -894,4 +1655,9 @@ function setupTime() {
 
 setupTime();
 bindEvents();
-loadDashboard();
+loadDashboard().then(() => {
+  if (location.hash === "#admin" || location.hash === "#params") {
+    switchView("admin");
+  }
+});
+

@@ -1,5 +1,4 @@
-from __future__ import annotations
-
+import sqlite3
 from datetime import date
 
 from .shared import Service
@@ -12,7 +11,7 @@ class ShoppingService(Service):
         with self.database.connect() as connection:
             cursor = connection.execute(
                 "INSERT INTO shopping_items(name, quantity, category) VALUES (?, ?, ?)",
-                self._item_values(data),
+                self._item_values(data, connection),
             )
             item_id = cursor.lastrowid
         return {"ok": True, "id": item_id}
@@ -21,7 +20,7 @@ class ShoppingService(Service):
         with self.database.connect() as connection:
             cursor = connection.execute(
                 "UPDATE shopping_items SET name = ?, quantity = ?, category = ? WHERE id = ?",
-                (*self._item_values(data), item_id),
+                (*self._item_values(data, connection), item_id),
             )
             if not cursor.rowcount:
                 raise ApiError("找不到購物項目", 404)
@@ -62,9 +61,16 @@ class ShoppingService(Service):
         return {"ok": True, "removed": cursor.rowcount}
 
     @staticmethod
-    def _item_values(data: dict) -> tuple:
+    def _item_values(data: dict, connection: sqlite3.Connection | None = None) -> tuple:
+        valid_keys = None
+        if connection is not None:
+            try:
+                valid_keys = {row[0] for row in connection.execute("SELECT key FROM categories")}
+            except sqlite3.OperationalError:
+                pass
         return (
             text(data.get("name"), label="購物項目"),
             positive_integer(data.get("quantity", 1)),
-            category(data.get("category", "groceries")),
+            category(data.get("category", "groceries"), valid_keys=valid_keys),
         )
+

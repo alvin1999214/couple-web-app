@@ -1,4 +1,4 @@
-from __future__ import annotations
+import sqlite3
 
 from .settings import is_configured
 from .shared import Service
@@ -34,6 +34,15 @@ class DashboardService(Service):
                 "SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE substr(spent_on, 1, 7) = ?",
                 (expense_filter.month,),
             ).fetchone()[0]
+
+            try:
+                categories = fetch_all(connection, "SELECT * FROM categories ORDER BY is_default DESC, key ASC")
+            except sqlite3.OperationalError:
+                categories = [
+                    {"key": k, "label": v["label"], "icon": v["icon"], "color": v["color"], "is_default": 1}
+                    for k, v in CATEGORY_META.items()
+                ]
+
             return {
                 "configured": True,
                 "month": expense_filter.month,
@@ -45,12 +54,13 @@ class DashboardService(Service):
                     "split": get_setting(connection, "split", DEFAULT_SPLIT),
                 },
                 "layout": get_setting(connection, "layout", DEFAULT_LAYOUT),
+                "categories": categories,
                 "expenses": expenses,
                 "expense_total": total,
                 "month_expense_total": round(float(month_total), 2),
                 "expense_count": len(expenses),
                 "filter": expense_filter.as_dict(),
-                "breakdown": self._breakdown(expenses),
+                "breakdown": self._breakdown(expenses, categories),
                 "shopping": fetch_all(connection, "SELECT * FROM shopping_items ORDER BY purchased, id DESC"),
                 "todos": fetch_all(
                     connection,
@@ -63,10 +73,19 @@ class DashboardService(Service):
             }
 
     @staticmethod
-    def _breakdown(expenses: list[dict]) -> list[dict]:
+    def _breakdown(expenses: list[dict], categories: list[dict] | None = None) -> list[dict]:
         result = []
-        for category, metadata in CATEGORY_META.items():
-            total = sum(item["amount"] for item in expenses if item["category"] == category)
+        meta_by_key = {}
+        if categories:
+            for cat in categories:
+                meta_by_key[cat["key"]] = {"label": cat["label"], "icon": cat["icon"], "color": cat["color"]}
+        for k, v in CATEGORY_META.items():
+            if k not in meta_by_key:
+                meta_by_key[k] = v
+
+        for cat_key, metadata in meta_by_key.items():
+            total = sum(item["amount"] for item in expenses if item["category"] == cat_key)
             if total:
-                result.append({"category": category, "amount": round(total, 2), **metadata})
+                result.append({"category": cat_key, "amount": round(total, 2), **metadata})
         return sorted(result, key=lambda item: item["amount"], reverse=True)
+
