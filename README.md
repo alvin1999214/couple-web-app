@@ -20,6 +20,22 @@
 
 ## 本地啟動
 
+### AI 單據記帳
+
+在「記一筆」選擇拍攝或上傳單據，識別後核對／修改名稱、實付總額、分類及日期，選擇付款人並確認記帳。每張單據建立一筆總額開支，不逐項拆帳；確認前不會寫入資料庫。照片只作識別及當次核對，不保存至帳簿。無法識別的欄位留空；外幣／不明幣別必須自行填寫實際港幣金額。
+
+Docker Compose 會讀取專案根目錄的 `.env`，可依 `.env.example` 設定：
+
+```dotenv
+INVOICE_OCR_BASE_URL=https://cpa.lokiicode.com/v1
+INVOICE_OCR_MODEL=gemini-3.8-flash-high
+INVOICE_OCR_API_KEY=你的實際APIkey
+```
+
+API key 只在後端使用；`sk-xxxxxx` 為佔位值，必須換成有效 key。OAuth 由 CLIProxyAPI 管理，本程式透過其 `/chat/completions` 接口傳送照片。模型名稱按上述設定原樣傳送，需確保代理帳戶已開通該模型。更新設定後執行 `docker compose up -d --build`。直接使用 `python app.py` 時需先在 shell 匯出這些環境變數（不會自動讀取 `.env`）。
+
+瀏覽器會將照片縮放至最長邊 2400px 並轉成 JPEG，上傳原圖上限 20 MB，送至後端上限 4 MB；識別逾時可重新上傳或手動填寫。HEIC 支援取決於瀏覽器，無法讀取時請改用 JPEG。`POST /api/expenses/ocr` 只回傳待確認草稿，最終儲存沿用 `POST /api/expenses`。
+
 ```bash
 docker compose up --build
 ```

@@ -10,6 +10,7 @@ from .services.admin import AdminService
 from .services.categories import CategoryService
 from .services.dashboard import DashboardService
 from .services.expenses import ExpenseService
+from .services.invoice_ocr import InvoiceOCRService
 from .services.settings import SettingsService
 from .services.shopping import ShoppingService
 from .services.special_days import SpecialDayService
@@ -34,6 +35,7 @@ class Router:
     def __init__(self, database: Database):
         dashboard = DashboardService(database)
         expenses = ExpenseService(database)
+        invoice_ocr = InvoiceOCRService(database)
         settings = SettingsService(database)
         shopping = ShoppingService(database)
         todos = TodoService(database)
@@ -58,6 +60,7 @@ class Router:
             self._route("POST", r"/api/onboarding", lambda p, b, q: settings.configure(b), status=201, setup=False),
             self._route("PATCH", r"/api/settings", lambda p, b, q: settings.update(b)),
             self._route("POST", r"/api/expenses", lambda p, b, q: expenses.create(b), status=201),
+            self._route("POST", r"/api/expenses/ocr", lambda p, b, q: invoice_ocr.recognize(b)),
             self._route("PATCH", r"/api/expenses/(?P<id>\d+)", lambda p, b, q: expenses.update(int(p["id"]), b)),
             self._route("DELETE", r"/api/expenses/(?P<id>\d+)", lambda p, b, q: expenses.delete(int(p["id"]))),
             self._route("POST", r"/api/shopping", lambda p, b, q: shopping.create(b), status=201),

@@ -7,6 +7,9 @@ services:
     environment:
       PORT: "8000"
       DATA_DIR: /app/data
+      INVOICE_OCR_BASE_URL: ${INVOICE_OCR_BASE_URL:-https://cpa.lokiicode.com/v1}
+      INVOICE_OCR_MODEL: ${INVOICE_OCR_MODEL:-gemini-3.8-flash-high}
+      INVOICE_OCR_API_KEY: ${INVOICE_OCR_API_KEY:-}
     volumes:
       - ourspace_data:/app/data
     restart: unless-stopped

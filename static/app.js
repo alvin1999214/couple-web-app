@@ -63,7 +63,7 @@ const state = {
 function esc(value = "") {
   const element = document.createElement("div");
   element.textContent = String(value);
-  return element.innerHTML;
+  return element.innerHTML.replaceAll('"', "&quot;").replaceAll("'", "&#39;");
 }
 
 function money(value, digits = 0) {
@@ -119,8 +119,8 @@ function filterScopeLabel() {
 
 async function api(path, options = {}) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8000);
-  const { headers = {}, signal, ...requestOptions } = options;
+  const { headers = {}, signal, timeoutMs = 8000, ...requestOptions } = options;
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(path, {
       ...requestOptions,
@@ -131,7 +131,7 @@ async function api(path, options = {}) {
     if (!response.ok) throw new Error(payload.error || "連線發生問題");
     return payload;
   } catch (error) {
-    if (error.name === "AbortError") throw new Error("啟動連線逾時，請重新載入");
+    if (error.name === "AbortError") throw new Error("連線已取消或逾時，請重試");
     throw error;
   } finally {
     clearTimeout(timeout);
@@ -659,12 +659,13 @@ function openModal(type, context = {}) {
   if (!state.data) return;
   const config = forms[type];
   if (!config) return;
+  cancelInvoiceOCR();
   const variant = context.item && config.edit ? config.edit : {};
   const effective = { ...config, ...variant };
   $("#modal-title").textContent = effective.title;
   const fields = config.fields(context).map(renderField).join("");
   const extra = typeof effective.extra === "function" ? effective.extra(context) : (effective.extra || "");
-  $("#dynamic-form").innerHTML = `${fields}${extra}${effective.note ? `<p class="form-note">${effective.note}</p>` : ""}
+  $("#dynamic-form").innerHTML = `${type === "expense" && !context.item ? invoiceControls() : ""}${fields}${extra}${effective.note ? `<p class="form-note">${effective.note}</p>` : ""}
     <div class="form-actions"><button type="button" class="button secondary" id="cancel-modal">稍後再算</button><button type="submit" class="button primary">${effective.submitLabel || "儲存到 Teletubbyland"}</button></div>`;
   $("#dynamic-form").dataset.formType = type;
   $("#dynamic-form").dataset.endpoint = typeof effective.endpoint === "function" ? effective.endpoint(context.item) : effective.endpoint;
@@ -674,6 +675,104 @@ function openModal(type, context = {}) {
   document.body.style.overflow = "hidden";
   if (type === "split") updateSplitCalculator();
   setTimeout(() => $("#dynamic-form [autofocus]")?.focus(), 120);
+}
+
+let invoiceRequest = null;
+
+function cancelInvoiceOCR() {
+  invoiceRequest?.abort();
+  invoiceRequest = null;
+}
+
+function invoiceControls() {
+  return `<section class="invoice-scan" aria-label="單據識別">
+    <div class="invoice-buttons">
+      <label class="button secondary invoice-file">${icon("plus")} 拍攝單據<input type="file" accept="image/*" capture="environment" data-invoice-file aria-label="拍攝單據"></label>
+      <label class="button secondary invoice-file">${icon("plus")} 上傳單據<input type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" data-invoice-file aria-label="上傳單據"></label>
+    </div>
+    <p class="form-note">照片將傳送至 AI 服務進行識別。</p>
+    <p id="invoice-status" role="status" aria-live="polite"></p>
+    <img id="invoice-preview" alt="待核對的單據" hidden>
+    <ul id="invoice-warnings" hidden></ul>
+    <label class="invoice-confirm" hidden><input type="checkbox" id="invoice-confirm">已核對單據及港幣金額</label>
+  </section>`;
+}
+
+async function prepareInvoiceImage(file) {
+  if (file.size > 20_000_000) throw new Error("照片不能超過 20 MB");
+  const url = URL.createObjectURL(file);
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode().catch(() => { throw new Error("無法讀取照片，請改用 JPEG、PNG 或 WebP"); });
+    const scale = Math.min(1, 2400 / Math.max(img.naturalWidth, img.naturalHeight));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+    const context = canvas.getContext("2d");
+    context.fillStyle = "#fff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(img, 0, 0, canvas.width, canvas.height);
+    const image = canvas.toDataURL("image/jpeg", 0.88);
+    if (image.length > 5_333_360) throw new Error("照片壓縮後仍超過 4 MB，請裁剪後重試");
+    return image;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+async function recognizeInvoice(file) {
+  if (state.submitting || invoiceRequest) return;
+  const request = new AbortController();
+  invoiceRequest = request;
+  const form = $("#dynamic-form");
+  const status = $("#invoice-status", form);
+  const controls = $$("input, select, button[type=submit]", form);
+  controls.forEach((control) => { control.disabled = true; });
+  status.textContent = "正在識別單據…";
+  // Keep the existing draft and preview together until a new recognition succeeds.
+  const timeout = setTimeout(() => request.abort(), 100_000);
+  try {
+    const image = await prepareInvoiceImage(file);
+    if (invoiceRequest !== request) return;
+    const result = await api("/api/expenses/ocr", {
+      method: "POST", body: JSON.stringify({ image }), signal: request.signal, timeoutMs: 100_000,
+    });
+    if (invoiceRequest !== request) return;
+    Object.entries(result.draft).forEach(([name, value]) => {
+      const field = form.elements.namedItem(name);
+      if (field) field.value = value ?? "";
+    });
+    const payer = form.elements.namedItem("paid_by");
+    if (!$("option[value='']", payer)) payer.add(new Option("請選擇付款人", ""), 0);
+    payer.value = "";
+    payer.required = true;
+    const preview = $("#invoice-preview", form);
+    preview.src = image;
+    preview.hidden = false;
+    const warnings = $("#invoice-warnings", form);
+    warnings.replaceChildren(...result.warnings.map((message) => {
+      const li = document.createElement("li");
+      li.textContent = message;
+      return li;
+    }));
+    warnings.hidden = !result.warnings.length;
+    const confirm = $("#invoice-confirm", form);
+    confirm.closest("label").hidden = false;
+    confirm.required = true;
+    confirm.checked = false;
+    status.textContent = "識別完成，待核對";
+    $("#modal-title").textContent = "核對單據開支";
+    $("button[type=submit]", form).textContent = "確認並記帳";
+  } catch (error) {
+    if (invoiceRequest === request) status.textContent = error.message;
+  } finally {
+    clearTimeout(timeout);
+    if (invoiceRequest === request) {
+      invoiceRequest = null;
+      controls.forEach((control) => { control.disabled = false; });
+    }
+  }
 }
 
 function openExpenseEditor(itemId) {
@@ -743,6 +842,7 @@ function updateSplitCalculator() {
 }
 
 function closeModal() {
+  cancelInvoiceOCR();
   $("#modal-backdrop").hidden = true;
   document.body.style.overflow = "";
 }
@@ -776,7 +876,7 @@ async function submitOnboarding(event) {
 
 async function submitForm(event) {
   event.preventDefault();
-  if (state.submitting) return;
+  if (state.submitting || invoiceRequest) return;
   const form = event.currentTarget;
   const config = forms[form.dataset.formType];
   const raw = Object.fromEntries(new FormData(form));
@@ -1597,6 +1697,11 @@ function bindEvents() {
   $("#dynamic-form").addEventListener("submit", submitForm);
   $("#onboarding-form").addEventListener("submit", submitOnboarding);
   document.addEventListener("change", (event) => {
+    if (event.target.matches("[data-invoice-file]")) {
+      const file = event.target.files[0];
+      event.target.value = "";
+      if (file) recognizeInvoice(file);
+    }
     if (event.target.id === "global-month" && event.target.value) {
       applyExpenseFilters({ month: event.target.value, period: "month" });
     }
@@ -1660,4 +1765,3 @@ loadDashboard().then(() => {
     switchView("admin");
   }
 });
-

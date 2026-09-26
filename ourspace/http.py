@@ -11,6 +11,7 @@ from urllib.parse import parse_qs, urlparse
 from .errors import ApiError
 from .config import APP_NAME
 from .router import Router
+from .services.invoice_ocr import MAX_OCR_BODY_BYTES
 
 
 MAX_BODY_BYTES = 1_000_000
@@ -41,7 +42,8 @@ def create_handler(router: Router, static_dir: Path):
 
         def handle_api(self, method: str, parsed) -> None:
             try:
-                body = self.read_json() if method in {"POST", "PATCH"} else {}
+                limit = MAX_OCR_BODY_BYTES if method == "POST" and parsed.path == "/api/expenses/ocr" else MAX_BODY_BYTES
+                body = self.read_json(limit) if method in {"POST", "PATCH"} else {}
                 payload, status = router.dispatch(method, parsed.path, body, parse_qs(parsed.query))
                 if isinstance(payload, dict) and payload.get("__download__"):
                     self.send_download(payload, status)
@@ -68,12 +70,14 @@ def create_handler(router: Router, static_dir: Path):
             self.wfile.write(content)
 
 
-        def read_json(self) -> dict:
+        def read_json(self, limit: int = MAX_BODY_BYTES) -> dict:
             try:
                 length = int(self.headers.get("Content-Length", "0"))
             except ValueError as exc:
                 raise ApiError("Content-Length 格式不正確") from exc
-            if length > MAX_BODY_BYTES:
+            if length < 0:
+                raise ApiError("Content-Length 格式不正確")
+            if length > limit:
                 raise ApiError("資料內容過大", HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
             try:
                 body = json.loads(self.rfile.read(length) or b"{}")
