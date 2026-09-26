@@ -3,18 +3,34 @@ from datetime import date
 
 from .shared import Service
 from ..errors import ApiError
+from ..invoice_images import decode_invoice_image
 from ..validation import category, iso_date, number, text
 
 
 class ExpenseService(Service):
     def create(self, data: dict) -> dict:
+        invoice = decode_invoice_image(data["invoice_image"]) if "invoice_image" in data else None
         with self.database.connect() as connection:
             cursor = connection.execute(
                 "INSERT INTO expenses(title, amount, category, paid_by, spent_on) VALUES (?, ?, ?, ?, ?)",
                 self._values(data, connection),
             )
             item_id = cursor.lastrowid
+            if invoice:
+                connection.execute(
+                    "INSERT INTO expense_invoices(expense_id, content_type, image) VALUES (?, ?, ?)",
+                    (item_id, *invoice),
+                )
         return {"ok": True, "id": item_id}
+
+    def invoice(self, item_id: int) -> dict:
+        with self.database.connect() as connection:
+            row = connection.execute(
+                "SELECT content_type, image FROM expense_invoices WHERE expense_id = ?", (item_id,),
+            ).fetchone()
+        if row is None:
+            raise ApiError("找不到此開支的單據", 404)
+        return {"__image__": True, "content_type": row["content_type"], "content": row["image"]}
 
     def update(self, item_id: int, data: dict) -> dict:
         with self.database.connect() as connection:
@@ -48,4 +64,3 @@ class ExpenseService(Service):
             text(data.get("paid_by", "共同"), max_length=30, label="付款人"),
             iso_date(data.get("spent_on") or date.today().isoformat()),
         )
-

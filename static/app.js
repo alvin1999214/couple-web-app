@@ -272,7 +272,7 @@ function renderBudget() {
     const meta = categories[item.category] || categories.other;
     return `<div class="expense-row">
       <span class="category-dot" style="background:${meta.color}"></span>
-      <span class="expense-info"><strong>${esc(item.title)}</strong><small>${expenseDate(item.spent_on)} · ${meta.label} · ${esc(item.paid_by)}</small></span>
+      <span class="expense-info"><strong>${esc(item.title)}</strong><small>${expenseDate(item.spent_on)} · ${meta.label} · ${esc(item.paid_by)}${item.has_invoice ? ` · <a href="/api/expenses/${item.id}/invoice" target="_blank" rel="noopener">單據</a>` : ""}</small></span>
       <span class="expense-amount">${money(item.amount)}</span>
       <span class="expense-actions">
         <button class="delete-row edit-row" data-edit-expense="${item.id}" aria-label="編輯 ${esc(item.title)}">${icon("edit")}</button>
@@ -660,11 +660,13 @@ function openModal(type, context = {}) {
   const config = forms[type];
   if (!config) return;
   cancelInvoiceOCR();
+  invoiceImage = null;
   const variant = context.item && config.edit ? config.edit : {};
   const effective = { ...config, ...variant };
   $("#modal-title").textContent = effective.title;
   const fields = config.fields(context).map(renderField).join("");
-  const extra = typeof effective.extra === "function" ? effective.extra(context) : (effective.extra || "");
+  const extra = (typeof effective.extra === "function" ? effective.extra(context) : (effective.extra || ""))
+    + (type === "expense" && context.item?.has_invoice ? `<a class="form-note" href="/api/expenses/${context.item.id}/invoice" target="_blank" rel="noopener">查看已保存單據</a>` : "");
   $("#dynamic-form").innerHTML = `${type === "expense" && !context.item ? invoiceControls() : ""}${fields}${extra}${effective.note ? `<p class="form-note">${effective.note}</p>` : ""}
     <div class="form-actions"><button type="button" class="button secondary" id="cancel-modal">稍後再算</button><button type="submit" class="button primary">${effective.submitLabel || "儲存到 Teletubbyland"}</button></div>`;
   $("#dynamic-form").dataset.formType = type;
@@ -678,6 +680,7 @@ function openModal(type, context = {}) {
 }
 
 let invoiceRequest = null;
+let invoiceImage = null;
 
 function cancelInvoiceOCR() {
   invoiceRequest?.abort();
@@ -749,6 +752,7 @@ async function recognizeInvoice(file) {
     payer.required = true;
     const preview = $("#invoice-preview", form);
     preview.src = image;
+    invoiceImage = image;
     preview.hidden = false;
     const warnings = $("#invoice-warnings", form);
     warnings.replaceChildren(...result.warnings.map((message) => {
@@ -843,6 +847,8 @@ function updateSplitCalculator() {
 
 function closeModal() {
   cancelInvoiceOCR();
+  invoiceImage = null;
+  $("#invoice-preview")?.removeAttribute("src");
   $("#modal-backdrop").hidden = true;
   document.body.style.overflow = "";
 }
@@ -881,6 +887,9 @@ async function submitForm(event) {
   const config = forms[form.dataset.formType];
   const raw = Object.fromEntries(new FormData(form));
   const payload = config.transform ? config.transform(raw) : raw;
+  if (form.dataset.formType === "expense" && form.dataset.method === "POST" && invoiceImage) {
+    payload.invoice_image = invoiceImage;
+  }
   const button = $("button[type=submit]", form);
   state.submitting = true;
   button.disabled = true;

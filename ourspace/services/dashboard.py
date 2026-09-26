@@ -25,7 +25,8 @@ class DashboardService(Service):
             where, params = expense_filter.sql()
             expenses = fetch_all(
                 connection,
-                f"SELECT * FROM expenses WHERE {where} "
+                "SELECT expenses.*, EXISTS(SELECT 1 FROM expense_invoices i WHERE i.expense_id = expenses.id) AS has_invoice "
+                f"FROM expenses WHERE {where} "
                 "ORDER BY spent_on DESC, id DESC",
                 params,
             )
@@ -88,4 +89,3 @@ class DashboardService(Service):
             if total:
                 result.append({"category": cat_key, "amount": round(total, 2), **metadata})
         return sorted(result, key=lambda item: item["amount"], reverse=True)
-

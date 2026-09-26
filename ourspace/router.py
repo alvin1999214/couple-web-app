@@ -61,6 +61,7 @@ class Router:
             self._route("PATCH", r"/api/settings", lambda p, b, q: settings.update(b)),
             self._route("POST", r"/api/expenses", lambda p, b, q: expenses.create(b), status=201),
             self._route("POST", r"/api/expenses/ocr", lambda p, b, q: invoice_ocr.recognize(b)),
+            self._route("GET", r"/api/expenses/(?P<id>\d+)/invoice", lambda p, b, q: expenses.invoice(int(p["id"]))),
             self._route("PATCH", r"/api/expenses/(?P<id>\d+)", lambda p, b, q: expenses.update(int(p["id"]), b)),
             self._route("DELETE", r"/api/expenses/(?P<id>\d+)", lambda p, b, q: expenses.delete(int(p["id"]))),
             self._route("POST", r"/api/shopping", lambda p, b, q: shopping.create(b), status=201),

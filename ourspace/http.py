@@ -11,7 +11,7 @@ from urllib.parse import parse_qs, urlparse
 from .errors import ApiError
 from .config import APP_NAME
 from .router import Router
-from .services.invoice_ocr import MAX_OCR_BODY_BYTES
+from .invoice_images import MAX_OCR_BODY_BYTES
 
 
 MAX_BODY_BYTES = 1_000_000
@@ -42,10 +42,18 @@ def create_handler(router: Router, static_dir: Path):
 
         def handle_api(self, method: str, parsed) -> None:
             try:
-                limit = MAX_OCR_BODY_BYTES if method == "POST" and parsed.path == "/api/expenses/ocr" else MAX_BODY_BYTES
+                limit = MAX_OCR_BODY_BYTES if method == "POST" and parsed.path in {"/api/expenses/ocr", "/api/expenses"} else MAX_BODY_BYTES
                 body = self.read_json(limit) if method in {"POST", "PATCH"} else {}
                 payload, status = router.dispatch(method, parsed.path, body, parse_qs(parsed.query))
-                if isinstance(payload, dict) and payload.get("__download__"):
+                if isinstance(payload, dict) and payload.get("__image__"):
+                    self.send_response(status)
+                    self.send_header("Content-Type", payload["content_type"])
+                    self.send_header("Content-Length", str(len(payload["content"])))
+                    self.send_header("Cache-Control", "no-store")
+                    self.send_header("X-Content-Type-Options", "nosniff")
+                    self.end_headers()
+                    self.wfile.write(payload["content"])
+                elif isinstance(payload, dict) and payload.get("__download__"):
                     self.send_download(payload, status)
                 else:
                     self.send_json(payload, status)

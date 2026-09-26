@@ -22,7 +22,7 @@
 
 ### AI 單據記帳
 
-在「記一筆」選擇拍攝或上傳單據，識別後核對／修改名稱、實付總額、分類及日期，選擇付款人並確認記帳。每張單據建立一筆總額開支，不逐項拆帳；確認前不會寫入資料庫。照片只作識別及當次核對，不保存至帳簿。無法識別的欄位留空；外幣／不明幣別必須自行填寫實際港幣金額。
+在「記一筆」選擇拍攝或上傳單據，識別後核對／修改名稱、實付總額、分類及日期，選擇付款人並確認記帳。每張單據建立一筆總額開支，不逐項拆帳；確認前不會寫入資料庫。確認記帳時，識別用的壓縮照片與開支在同一 transaction 儲存至本地 SQLite `expense_invoices` 表（BLOB），不是獨立圖片檔；取消、只做識別或記帳失敗都不會保存照片。開支列表及編輯視窗可查看單據；修改開支保留照片，刪除開支同時刪除照片。照片包含於既有 `data/ourspace.db`（Docker 的 `ourspace_data` volume）及資料庫備份中，舊備份仍保留當時的照片。無法識別的欄位留空；外幣／不明幣別必須自行填寫實際港幣金額。
 
 Docker Compose 會讀取專案根目錄的 `.env`，可依 `.env.example` 設定：
 
@@ -243,6 +243,7 @@ iOS 可能保存舊的 touch icon；Logo 更新後如仍顯示舊圖，先刪除
 |---|---|
 | `settings` | JSON key/value；onboarding、預算、名字、split、layout |
 | `expenses` | 開支 ledger；`shopping_item_id` 只記錄來源，不控制購物項目 lifecycle |
+| `expense_invoices` | migration v005；每筆開支最多一張本地單據照片，隨開支一同新增／刪除 |
 | `shopping_items` | 待購／已完成狀態；`expense_id` 刪除時設為 `NULL` |
 | `todos` | 待辦、負責人、期限、完成狀態 |
 | `special_days` | 特別日子及每年重複設定 |

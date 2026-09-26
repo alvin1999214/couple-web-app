@@ -13,6 +13,8 @@ from ourspace.errors import ApiError
 from ourspace.router import Router
 from ourspace.services.invoice_ocr import InvoiceOCRService
 from ourspace.services.settings import SettingsService
+from ourspace.services.expenses import ExpenseService
+from ourspace.services.dashboard import DashboardService
 
 
 class InvoiceOCRTests(unittest.TestCase):
@@ -48,6 +50,7 @@ class InvoiceOCRTests(unittest.TestCase):
         self.assertNotIn("paid_by", draft["draft"])
         with self.db.connect() as conn:
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM expenses").fetchone()[0], 0)
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM expense_invoices").fetchone()[0], 0)
         request = send.call_args.args[0]
         self.assertEqual(request.full_url, "https://example.test/v1/chat/completions")
         self.assertEqual(request.get_header("Authorization"), "Bearer test-key")
@@ -70,6 +73,46 @@ class InvoiceOCRTests(unittest.TestCase):
                 result = self.service.recognize({"image": self.image})
                 self.assertIsNone(result["draft"]["amount"])
                 self.assertTrue(result["warnings"])
+
+    def test_invoice_saved_with_expense_survives_edit_and_deleted_with_expense(self):
+        service = ExpenseService(self.db)
+        data = {"title": "Receipt", "amount": 123.45, "spent_on": "2026-09-26", "paid_by": "A", "invoice_image": self.image}
+        item_id = service.create(data)["id"]
+        photo, status = Router(self.db).dispatch("GET", f"/api/expenses/{item_id}/invoice", {}, {})
+        self.assertEqual(status, 200)
+        self.assertEqual(photo["content_type"], "image/png")
+        self.assertEqual(photo["content"], base64.b64decode(self.image.split(",")[1]))
+        self.assertEqual(DashboardService(self.db).get(month="2026-09")["expenses"][0]["has_invoice"], 1)
+        service.update(item_id, {"title": "Edited", "amount": 100})
+        self.assertEqual(service.invoice(item_id), photo)
+        service.delete(item_id)
+        with self.db.connect() as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM expense_invoices").fetchone()[0], 0)
+        with self.assertRaises(ApiError) as caught:
+            service.invoice(item_id)
+        self.assertEqual(caught.exception.status, 404)
+
+    def test_invalid_expense_or_image_saves_neither(self):
+        for data in ({"title": "Receipt", "amount": 10, "invoice_image": "invalid"}, {"title": "", "amount": 10, "invoice_image": self.image}):
+            with self.assertRaises(ApiError):
+                ExpenseService(self.db).create(data)
+        with self.db.connect() as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM expenses").fetchone()[0], 0)
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM expense_invoices").fetchone()[0], 0)
+
+    def test_invoice_insert_failure_rolls_back_expense(self):
+        import sqlite3
+        with self.db.connect() as conn:
+            conn.execute("CREATE TRIGGER fail_invoice BEFORE INSERT ON expense_invoices BEGIN SELECT RAISE(ABORT, 'test'); END")
+        with self.assertRaises(sqlite3.IntegrityError):
+            ExpenseService(self.db).create({"title": "Receipt", "amount": 10, "invoice_image": self.image})
+        with self.db.connect() as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM expenses").fetchone()[0], 0)
+
+    def test_manual_expense_has_no_invoice(self):
+        item_id = ExpenseService(self.db).create({"title": "Manual", "amount": 10})["id"]
+        with self.assertRaises(ApiError):
+            ExpenseService(self.db).invoice(item_id)
 
     @patch("ourspace.services.invoice_ocr.urlopen")
     def test_untrusted_fields_are_normalized(self, send):

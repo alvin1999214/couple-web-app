@@ -24,7 +24,7 @@ class MigrationTests(unittest.TestCase):
 
         self.assertEqual(first.previous_version, 0)
         self.assertEqual(first.current_version, LATEST_SCHEMA_VERSION)
-        self.assertEqual(first.applied_versions, (1, 2, 3, 4))
+        self.assertEqual(first.applied_versions, (1, 2, 3, 4, 5))
         self.assertIsNone(first.backup_path)
         self.assertEqual(second.applied_versions, ())
         self.assertIsNone(second.backup_path)
@@ -36,7 +36,7 @@ class MigrationTests(unittest.TestCase):
                 "SELECT name FROM sqlite_master WHERE type = 'index'"
             )}
             user_version = connection.execute("PRAGMA user_version").fetchone()[0]
-        self.assertEqual(versions, [1, 2, 3, 4])
+        self.assertEqual(versions, [1, 2, 3, 4, 5])
         self.assertEqual(user_version, LATEST_SCHEMA_VERSION)
         self.assertIn("idx_expenses_spent_on", indexes)
         self.assertIn("idx_expenses_category_spent_on", indexes)
@@ -84,11 +84,11 @@ class MigrationTests(unittest.TestCase):
                 "id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL)"
             )
 
-        extended = Database(self.path, migrations=(*MIGRATIONS, Migration(5, "expense_note_and_assets", extend_schema)))
+        extended = Database(self.path, migrations=(*MIGRATIONS, Migration(6, "expense_note_and_assets", extend_schema)))
         report = extended.initialize()
         repeated = extended.initialize()
 
-        self.assertEqual(report.applied_versions, (5,))
+        self.assertEqual(report.applied_versions, (6,))
         self.assertIsNotNone(report.backup_path)
         self.assertEqual(repeated.applied_versions, ())
         self.assertIsNone(repeated.backup_path)
@@ -102,6 +102,19 @@ class MigrationTests(unittest.TestCase):
         self.assertIn("household_assets", tables)
         self.assertEqual(tuple(original), ("保留我", 99.0))
 
+    def test_invoice_migration_preserves_v4_expenses(self):
+        old = Database(self.path, migrations=MIGRATIONS[:4])
+        old.initialize()
+        with old.connect() as connection:
+            connection.execute("INSERT INTO expenses(title, amount, category, paid_by, spent_on) VALUES ('Old', 20, 'other', 'A', '2026-01-01')")
+        upgraded = Database(self.path)
+        report = upgraded.initialize()
+        self.assertEqual(report.applied_versions, (5,))
+        self.assertTrue(report.backup_path.is_file())
+        with upgraded.connect() as connection:
+            self.assertEqual(connection.execute("SELECT title, amount FROM expenses").fetchone()[:], ('Old', 20))
+            self.assertEqual(connection.execute("SELECT COUNT(*) FROM expense_invoices").fetchone()[0], 0)
+
     def test_failed_migration_rolls_back_schema_change(self):
         Database(self.path).initialize()
 
@@ -109,14 +122,14 @@ class MigrationTests(unittest.TestCase):
             ensure_column(connection, "expenses", "temporary_field", "TEXT")
             connection.execute("INSERT INTO table_that_does_not_exist VALUES (1)")
 
-        database = Database(self.path, migrations=(*MIGRATIONS, Migration(5, "broken", broken_migration)))
+        database = Database(self.path, migrations=(*MIGRATIONS, Migration(6, "broken", broken_migration)))
         with self.assertRaises(sqlite3.OperationalError):
             database.initialize()
 
         with database.connect() as connection:
             columns = {row["name"] for row in connection.execute("PRAGMA table_info(expenses)")}
             applied = connection.execute(
-                "SELECT COUNT(*) FROM schema_migrations WHERE version = 5"
+                "SELECT COUNT(*) FROM schema_migrations WHERE version = 6"
             ).fetchone()[0]
         self.assertNotIn("temporary_field", columns)
         self.assertEqual(applied, 0)
