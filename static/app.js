@@ -701,24 +701,33 @@ function invoiceControls() {
   </section>`;
 }
 
-async function prepareInvoiceImage(file) {
+async function prepareInvoiceImage(file, { maxEdge = 2400, quality = 0.88, maxBytes = 4_000_000 } = {}) {
   if (file.size > 20_000_000) throw new Error("照片不能超過 20 MB");
   const url = URL.createObjectURL(file);
   try {
     const img = new Image();
     img.src = url;
     await img.decode().catch(() => { throw new Error("無法讀取照片，請改用 JPEG、PNG 或 WebP"); });
-    const scale = Math.min(1, 2400 / Math.max(img.naturalWidth, img.naturalHeight));
+    const scale = Math.min(1, maxEdge / Math.max(img.naturalWidth, img.naturalHeight));
     const canvas = document.createElement("canvas");
     canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
     canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
-    const context = canvas.getContext("2d");
-    context.fillStyle = "#fff";
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    context.drawImage(img, 0, 0, canvas.width, canvas.height);
-    const image = canvas.toDataURL("image/jpeg", 0.88);
-    if (image.length > 5_333_360) throw new Error("照片壓縮後仍超過 4 MB，請裁剪後重試");
-    return image;
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      const context = canvas.getContext("2d");
+      context.fillStyle = "#fff";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(img, 0, 0, canvas.width, canvas.height);
+      const image = canvas.toDataURL("image/jpeg", quality);
+      const bytes = Math.ceil((image.length - image.indexOf(",") - 1) * 3 / 4);
+      if (bytes <= maxBytes) return image;
+      // Reduce quality first, then dimensions, always drawing from the source image.
+      if (quality > 0.55) quality = Math.max(0.55, quality - 0.1);
+      else {
+        canvas.width = Math.max(1, Math.round(canvas.width * 0.8));
+        canvas.height = Math.max(1, Math.round(canvas.height * 0.8));
+      }
+    }
+    throw new Error("照片壓縮後仍過大，請裁剪後重試");
   } finally {
     URL.revokeObjectURL(url);
   }
@@ -742,6 +751,8 @@ async function recognizeInvoice(file) {
       method: "POST", body: JSON.stringify({ image }), signal: request.signal, timeoutMs: 100_000,
     });
     if (invoiceRequest !== request) return;
+    const storedImage = await prepareInvoiceImage(file, { maxEdge: 1600, quality: 0.75, maxBytes: 600_000 });
+    if (invoiceRequest !== request) return;
     Object.entries(result.draft).forEach(([name, value]) => {
       const field = form.elements.namedItem(name);
       if (field) field.value = value ?? "";
@@ -752,7 +763,7 @@ async function recognizeInvoice(file) {
     payer.required = true;
     const preview = $("#invoice-preview", form);
     preview.src = image;
-    invoiceImage = image;
+    invoiceImage = storedImage;
     preview.hidden = false;
     const warnings = $("#invoice-warnings", form);
     warnings.replaceChildren(...result.warnings.map((message) => {

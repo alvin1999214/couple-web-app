@@ -22,7 +22,7 @@
 
 ### AI 單據記帳
 
-在「記一筆」選擇拍攝或上傳單據，識別後核對／修改名稱、實付總額、分類及日期，選擇付款人並確認記帳。每張單據建立一筆總額開支，不逐項拆帳；確認前不會寫入資料庫。確認記帳時，識別用的壓縮照片與開支在同一 transaction 儲存至本地 SQLite `expense_invoices` 表（BLOB），不是獨立圖片檔；取消、只做識別或記帳失敗都不會保存照片。開支列表及編輯視窗可查看單據；修改開支保留照片，刪除開支同時刪除照片。照片包含於既有 `data/ourspace.db`（Docker 的 `ourspace_data` volume）及資料庫備份中，舊備份仍保留當時的照片。無法識別的欄位留空；外幣／不明幣別必須自行填寫實際港幣金額。
+在「記一筆」選擇拍攝或上傳單據，識別後核對／修改名稱、實付總額、分類及日期，選擇付款人並確認記帳。每張單據建立一筆總額開支，不逐項拆帳；確認前不會寫入資料庫。確認記帳時，額外壓縮的儲存版照片與開支在同一 transaction 儲存至本地 SQLite `expense_invoices` 表（BLOB），不是獨立圖片檔；取消、只做識別或記帳失敗都不會保存照片。開支列表及編輯視窗可查看單據；修改開支保留照片，刪除開支同時刪除照片。照片包含於既有 `data/ourspace.db`（Docker 的 `ourspace_data` volume）及資料庫備份中，舊備份仍保留當時的照片。無法識別的欄位留空；外幣／不明幣別必須自行填寫實際港幣金額。
 
 Docker Compose 會讀取專案根目錄的 `.env`，可依 `.env.example` 設定：
 
@@ -34,7 +34,7 @@ INVOICE_OCR_API_KEY=你的實際APIkey
 
 API key 只在後端使用；`sk-xxxxxx` 為佔位值，必須換成有效 key。OAuth 由 CLIProxyAPI 管理，本程式透過其 `/chat/completions` 接口傳送照片。模型名稱按上述設定原樣傳送，需確保代理帳戶已開通該模型。更新設定後執行 `docker compose up -d --build`。直接使用 `python app.py` 時需先在 shell 匯出這些環境變數（不會自動讀取 `.env`）。
 
-瀏覽器會將照片縮放至最長邊 2400px 並轉成 JPEG，上傳原圖上限 20 MB，送至後端上限 4 MB；識別逾時可重新上傳或手動填寫。HEIC 支援取決於瀏覽器，無法讀取時請改用 JPEG。`POST /api/expenses/ocr` 只回傳待確認草稿，最終儲存沿用 `POST /api/expenses`。
+瀏覽器會將識別版照片縮放至最長邊 2400px 並轉成 JPEG，上傳原圖上限 20 MB，送至 OCR 上限 4 MB。儲存版另外以最長邊 1600px、JPEG 品質 75% 起始壓縮，超過 600 KB（600,000 bytes）會先降低品質，再縮小尺寸，直到符合上限；不放大小圖。只有儲存版會隨確認記帳送出，原圖和識別版不會保存。此設定適用於新上傳的照片，既有照片不重新壓縮。識別逾時可重新上傳或手動填寫。HEIC 支援取決於瀏覽器，無法讀取時請改用 JPEG。`POST /api/expenses/ocr` 只回傳待確認草稿，最終儲存沿用 `POST /api/expenses`。
 
 ```bash
 docker compose up --build
