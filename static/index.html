@@ -19,7 +19,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=Noto+Sans+TC:wght@400;500;600;700&family=Noto+Serif+TC:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20260825-11">
+  <link rel="stylesheet" href="/styles.css?v=20260928-1">
 </head>
 <body>
   <svg class="svg-sprite" aria-hidden="true">
@@ -276,7 +276,7 @@
   <nav class="mobile-nav" id="mobile-nav" aria-label="手機導覽" hidden>
     <a class="active" href="#top" data-section="dashboard"><svg><use href="#i-grid"/></svg><span>總覽</span></a>
     <a href="#budget" data-section="budget"><svg><use href="#i-wallet"/></svg><span>開支</span></a>
-    <button class="mobile-add" data-open-modal="expense"><svg><use href="#i-plus"/></svg></button>
+    <button class="mobile-add" data-open-modal="expense" aria-label="記錄開支"><svg><use href="#i-plus"/></svg></button>
     <a href="#shopping" data-section="shopping"><svg><use href="#i-cart"/></svg><span>購物</span></a>
     <a href="#admin" data-section="admin"><svg><use href="#i-sliders"/></svg><span>參數</span></a>
   </nav>
@@ -299,6 +299,6 @@
       boot.innerHTML = '<span class="boot-error-mark">!</span><strong>啟動時間比預期長</strong><p>請確認服務仍在運作，然後重新載入。</p><button type="button" onclick="window.location.reload()">重新載入</button>';
     }, 10000);
   </script>
-  <script src="/app.js?v=20260825-11" defer></script>
+  <script src="/app.js?v=20260928-1" defer></script>
 </body>
 </html>

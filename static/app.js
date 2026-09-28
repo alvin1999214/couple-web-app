@@ -708,7 +708,7 @@ function invoiceControls() {
     <img id="invoice-preview" alt="待核對的單據" hidden>
     <ul id="invoice-warnings" hidden></ul>
     <div id="invoice-duplicates" class="invoice-duplicates" role="alert" hidden></div>
-    <label class="invoice-confirm" hidden><input type="checkbox" id="invoice-confirm">已核對單據日期（包括年份）及港幣金額</label>
+    <label class="invoice-confirm" hidden><input type="checkbox" id="invoice-confirm"><span>已核對單據日期（包括年份）及港幣金額</span></label>
   </section>`;
 }
 
@@ -719,7 +719,7 @@ function showInvoiceDuplicates(duplicates, form) {
     <strong>這張單據可能已經上傳過了</strong>
     <p>請打開已有單據圖片，與本次照片比較。若是同一張，請取消記帳。</p>
     <ul>${duplicates.map((item) => `<li><a href="/api/expenses/${Number(item.id)}/invoice" target="_blank" rel="noopener">查看單據圖片：${esc(item.title)}</a><br>${esc(item.spent_on)} · HK$${Number(item.amount).toFixed(2)} · ${esc(item.reason)}</li>`).join("")}</ul>
-    <label class="invoice-confirm"><input type="checkbox" id="invoice-duplicate-confirm" required>已查看圖片，確認本次是另一張單據，仍要記帳</label>` : "";
+    <label class="invoice-confirm"><input type="checkbox" id="invoice-duplicate-confirm" required><span>已查看圖片，確認本次是另一張單據，仍要記帳</span></label>` : "";
   panel.dataset.reviewIds = JSON.stringify(duplicates.map((item) => item.id));
 }
 
