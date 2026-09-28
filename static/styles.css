@@ -541,8 +541,9 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 .insight-orb svg { width: 24px; }
 .insight-copy p { margin: 0; color: var(--muted); font-size: 9px; }
 .insight-copy strong { display: block; margin-top: 4px; font-size: 13px; line-height: 1.45; }
-.bars { display: flex; height: 72px; align-items: end; gap: 8px; padding-top: 8px; }
-.bar { position: relative; flex: 1; border-radius: 5px 5px 2px 2px; background: #eee9e1; }
+.bars { display: flex; height: 72px; align-items: end; gap: 8px; padding-top: 8px; margin-bottom: 20px; }
+/* Absolute fills need a definite track height for percentage values. */
+.bar { position: relative; flex: 1; min-width: 0; height: 100%; border-radius: 5px 5px 2px 2px; background: #eee9e1; }
 .bar span { position: absolute; inset: auto 0 0; border-radius: inherit; background: #9bb3a2; transform-origin: bottom; animation: growBar .8s both; }
 .bar:nth-child(2n) span { background: #e4a995; }
 .bar small { position: absolute; right: 0; bottom: -18px; left: 0; color: var(--muted); font-size: 8px; text-align: center; }
