@@ -109,6 +109,39 @@ class InvoiceOCRTests(unittest.TestCase):
         with self.db.connect() as conn:
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM expenses").fetchone()[0], 0)
 
+    @patch("ourspace.services.invoice_ocr.urlopen")
+    def test_older_ocr_receipt_is_saved_but_hidden_by_current_filter(self, send):
+        for spent_on in ("2026-08-25", "2025-09-26", "2025-12-31", "2024-02-29"):
+            with self.subTest(spent_on=spent_on):
+                send.return_value = self.response({**self.result, "spent_on": spent_on})
+                draft = self.service.recognize({"image": self.image})["draft"]
+                self.assertEqual(draft["spent_on"], spent_on)
+                saved, status = Router(self.db).dispatch(
+                    "POST", "/api/expenses", {**draft, "invoice_image": self.image}, {},
+                )
+                self.assertEqual(status, 201)
+                with self.db.connect() as connection:
+                    row = connection.execute("SELECT spent_on FROM expenses WHERE id = ?", (saved["id"],)).fetchone()
+                    self.assertEqual(row["spent_on"], spent_on)
+                dashboard = DashboardService(self.db)
+                self.assertEqual(dashboard.get(month="2026-09")["expenses"], [])
+                month = spent_on[:7]
+                self.assertEqual(dashboard.get(month=month, category="dining")["expenses"], [])
+                result = dashboard.get(month=month, category="all")
+                visible = result["expenses"]
+                self.assertEqual([item["id"] for item in visible], [saved["id"]])
+                self.assertEqual(visible[0]["spent_on"], spent_on)
+                self.assertEqual(visible[0]["has_invoice"], 1)
+                self.assertEqual(result["month_expense_total"], draft["amount"])
+
+    @patch("ourspace.services.invoice_ocr.urlopen")
+    def test_reviewed_date_overrides_ocr_date(self, send):
+        send.return_value = self.response()
+        draft = self.service.recognize({"image": self.image})["draft"]
+        saved = ExpenseService(self.db).create({**draft, "spent_on": "2025-01-15", "invoice_image": self.image})
+        rows = DashboardService(self.db).get(month="2025-01")["expenses"]
+        self.assertEqual([(row["id"], row["spent_on"]) for row in rows], [(saved["id"], "2025-01-15")])
+
     def test_manual_expense_has_no_invoice(self):
         item_id = ExpenseService(self.db).create({"title": "Manual", "amount": 10})["id"]
         with self.assertRaises(ApiError):

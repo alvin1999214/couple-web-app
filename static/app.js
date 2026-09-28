@@ -121,13 +121,18 @@ async function api(path, options = {}) {
   const controller = new AbortController();
   const { headers = {}, signal, timeoutMs = 8000, ...requestOptions } = options;
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const abort = () => controller.abort();
+  if (signal?.aborted) abort();
+  signal?.addEventListener("abort", abort, { once: true });
   try {
     const response = await fetch(path, {
       ...requestOptions,
       headers: { "Content-Type": "application/json", ...headers },
-      signal: signal || controller.signal,
+      signal: controller.signal,
     });
-    const payload = await response.json().catch(() => ({}));
+    const payload = await response.json().catch(() => {
+      throw new Error("伺服器回應不完整，未能確認結果");
+    });
     if (!response.ok) throw new Error(payload.error || "連線發生問題");
     return payload;
   } catch (error) {
@@ -135,10 +140,11 @@ async function api(path, options = {}) {
     throw error;
   } finally {
     clearTimeout(timeout);
+    signal?.removeEventListener("abort", abort);
   }
 }
 
-async function loadDashboard({ quiet = false } = {}) {
+async function loadDashboard({ quiet = false, throwOnError = false } = {}) {
   const sequence = ++state.loadSequence;
   const params = new URLSearchParams({
     month: state.month,
@@ -167,6 +173,7 @@ async function loadDashboard({ quiet = false } = {}) {
 
   } catch (error) {
     if (sequence !== state.loadSequence) return;
+    if (throwOnError) throw error;
     if (!quiet) {
       showApp();
       renderLoadError(error.message);
@@ -656,7 +663,7 @@ function localISODate(addDays = 0) {
 }
 
 function openModal(type, context = {}) {
-  if (!state.data) return;
+  if (!state.data || state.submitting) return;
   const config = forms[type];
   if (!config) return;
   cancelInvoiceOCR();
@@ -668,6 +675,7 @@ function openModal(type, context = {}) {
   const extra = (typeof effective.extra === "function" ? effective.extra(context) : (effective.extra || ""))
     + (type === "expense" && context.item?.has_invoice ? `<a class="form-note" href="/api/expenses/${context.item.id}/invoice" target="_blank" rel="noopener">查看已保存單據</a>` : "");
   $("#dynamic-form").innerHTML = `${type === "expense" && !context.item ? invoiceControls() : ""}${fields}${extra}${effective.note ? `<p class="form-note">${effective.note}</p>` : ""}
+    <p id="form-save-status" class="form-note" role="alert" hidden></p>
     <div class="form-actions"><button type="button" class="button secondary" id="cancel-modal">稍後再算</button><button type="submit" class="button primary">${effective.submitLabel || "儲存到 Teletubbyland"}</button></div>`;
   $("#dynamic-form").dataset.formType = type;
   $("#dynamic-form").dataset.endpoint = typeof effective.endpoint === "function" ? effective.endpoint(context.item) : effective.endpoint;
@@ -693,11 +701,11 @@ function invoiceControls() {
       <label class="button secondary invoice-file">${icon("plus")} 拍攝單據<input type="file" accept="image/*" capture="environment" data-invoice-file aria-label="拍攝單據"></label>
       <label class="button secondary invoice-file">${icon("plus")} 上傳單據<input type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" data-invoice-file aria-label="上傳單據"></label>
     </div>
-    <p class="form-note">照片將傳送至 AI 服務進行識別。</p>
+    <p class="form-note">照片將傳送至 AI 服務進行識別。可補記上月或往年單據，開支會按核對後的日期記入相應年月。</p>
     <p id="invoice-status" role="status" aria-live="polite"></p>
     <img id="invoice-preview" alt="待核對的單據" hidden>
     <ul id="invoice-warnings" hidden></ul>
-    <label class="invoice-confirm" hidden><input type="checkbox" id="invoice-confirm">已核對單據及港幣金額</label>
+    <label class="invoice-confirm" hidden><input type="checkbox" id="invoice-confirm">已核對單據日期（包括年份）及港幣金額</label>
   </section>`;
 }
 
@@ -856,7 +864,8 @@ function updateSplitCalculator() {
   $("#split-preview i").style.setProperty("--first-share", `${first}%`);
 }
 
-function closeModal() {
+function closeModal({ saved = false } = {}) {
+  if (state.submitting && !saved) return;
   cancelInvoiceOCR();
   invoiceImage = null;
   $("#invoice-preview")?.removeAttribute("src");
@@ -905,22 +914,54 @@ async function submitForm(event) {
   state.submitting = true;
   button.disabled = true;
   button.textContent = "正在儲存…";
+  const status = $("#form-save-status", form);
+  status.hidden = true;
+  let saved = false;
   try {
-    await api(form.dataset.endpoint, { method: form.dataset.method, body: JSON.stringify(payload) });
-    closeModal();
-    toast(form.dataset.success);
-    await loadDashboard({ quiet: true });
+    const result = await api(form.dataset.endpoint, {
+      method: form.dataset.method, body: JSON.stringify(payload),
+      timeoutMs: payload.invoice_image ? 60_000 : 8000,
+    });
+    if (result?.ok !== true || (form.dataset.formType === "expense" && form.dataset.method === "POST" && !Number.isInteger(result.id))) {
+      throw new Error("伺服器未確認儲存結果");
+    }
+    saved = true;
+    // OCR dates can fall outside the current month or active filters.
+    const changedFilter = form.dataset.formType === "expense" && revealSavedExpense(payload);
+    closeModal({ saved: true });
+    toast(form.dataset.success + (changedFilter ? `，已切換至 ${monthLabel(state.month)}全部類別` : ""));
+    await loadDashboard({ quiet: true, throwOnError: true });
     if ($("#admin-view") && !$("#admin-view").hidden) {
       await loadAdminTable(adminState.currentTable);
       await loadAdminOverview();
     }
   } catch (error) {
-    toast(error.message, true);
-    button.disabled = false;
-    button.textContent = "再試一次";
+    if (saved) {
+      const message = "資料已儲存，但清單載入失敗。請重新載入，毋須再次提交。";
+      renderLoadError(message);
+      toast(message, true);
+    } else {
+      status.textContent = `${error.message}。未能確認是否已儲存，請先查看記錄再重試，以免重複記帳。`;
+      status.hidden = false;
+      toast(error.message, true);
+      button.disabled = false;
+      button.textContent = "再試一次";
+    }
   } finally {
     state.submitting = false;
   }
+}
+
+function revealSavedExpense(payload) {
+  const spentOn = payload.spent_on || localISODate();
+  const filter = state.data?.filter;
+  const visible = filter && spentOn >= filter.date_from && spentOn <= filter.date_to
+    && (filter.category === "all" || filter.category === payload.category);
+  if (visible) return false;
+  state.month = spentOn.slice(0, 7);
+  state.period = "month";
+  state.category = "all";
+  return true;
 }
 
 async function toggleTodo(id, value, button) {
