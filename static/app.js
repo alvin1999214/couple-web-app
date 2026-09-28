@@ -221,6 +221,7 @@ function renderDashboard() {
   grid.classList.toggle("editing", state.editing);
   setupDragAndDrop();
   updateExpenseFilters();
+  updateSpecialDayNotification();
   requestAnimationFrame(() => {
     const donut = $(".donut");
     if (donut) donut.style.setProperty("--progress", `${Math.min(100, state.data.month_expense_total / state.data.settings.monthly_budget * 100) * 3.6}deg`);
@@ -357,29 +358,75 @@ function renderTodo() {
     <button class="widget-add-button" data-open-modal="todo">${icon("plus")} 新增待辦事項</button>`;
 }
 
-function nextEventDate(item) {
-  let next = new Date(`${item.event_date}T00:00:00`);
-  const now = new Date();
+function nextEventDate(item, today = new Date()) {
+  const original = new Date(`${item.event_date}T00:00:00`);
+  const now = new Date(today);
   now.setHours(0, 0, 0, 0);
-  if (item.repeats_yearly && next < now) {
-    next.setFullYear(now.getFullYear());
-    if (next < now) next.setFullYear(now.getFullYear() + 1);
-  }
+  if (!item.repeats_yearly || original >= now) return original;
+  // Rebuild from the original month/day so leap-day rollover never drifts.
+  const occurrence = (year) => new Date(year, original.getMonth(), original.getDate());
+  let next = occurrence(now.getFullYear());
+  if (next < now) next = occurrence(now.getFullYear() + 1);
   return next;
 }
 
+function specialDayTimeline(items, today = new Date()) {
+  // Compare calendar dates, not elapsed hours (which vary across DST changes).
+  const dayNumber = (date) => Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86400000;
+  return items.map((item) => {
+    const next = nextEventDate(item, today);
+    return { item, next, days: dayNumber(next) - dayNumber(today) };
+  }).sort((a, b) => {
+    if ((a.days < 0) !== (b.days < 0)) return a.days < 0 ? 1 : -1;
+    return a.days < 0 ? b.days - a.days : a.days - b.days;
+  });
+}
+
+function specialDayLabel(days) {
+  return days < 0 ? `在 ${Math.abs(days)} 天之前` : days === 0 ? "就是今日" : `還有 ${days} 天`;
+}
+
+function specialDayReminder(items, today = new Date()) {
+  const upcoming = specialDayTimeline(items, today).filter(({ days }) => days >= 0 && days <= 7);
+  return {
+    count: upcoming.length,
+    message: upcoming.length
+      ? `今天至未來 7 天有 ${upcoming.length} 個特別日子：${upcoming[0].item.title}，${specialDayLabel(upcoming[0].days)}`
+      : "今天至未來 7 天沒有特別日子提醒",
+  };
+}
+
+function updateSpecialDayNotification() {
+  const reminder = specialDayReminder(state.data?.special_days || []);
+  const button = $(".notification-button");
+  if (button) {
+    $(".notice-dot", button).hidden = reminder.count === 0;
+    button.setAttribute("aria-label", reminder.message);
+    button.title = reminder.message;
+  }
+  return reminder;
+}
+
+let specialDaysRenderedOn = "";
+
+function refreshSpecialDayDates() {
+  if (!state.data || specialDaysRenderedOn === localISODate()) return;
+  setupTime();
+  renderDashboard();
+}
+
 function renderMoments() {
-  const now = new Date();
-  now.setHours(0, 0, 0, 0);
-  const items = [...state.data.special_days].sort((a, b) => nextEventDate(a) - nextEventDate(b));
-  const content = items.length ? items.slice(0, 3).map((item) => {
-    const next = nextEventDate(item);
-    const days = Math.max(0, Math.round((next - now) / 86400000));
+  specialDaysRenderedOn = localISODate();
+  const items = specialDayTimeline(state.data.special_days);
+  const content = items.length ? items.slice(0, 3).map(({ item, next, days }) => {
     return `<div class="event-card">
       <div class="event-date"><strong>${next.getDate()}</strong><small>${next.toLocaleDateString(state.data?.preferences?.locale || "zh-HK", { month: "short" })}</small></div>
-      <div class="event-info"><strong>${esc(item.title)}</strong><small>${days === 0 ? "就是今日" : `還有 ${days} 天`} ${item.repeats_yearly ? "· 每年" : ""}</small></div>
+      <div class="event-info"><strong>${esc(item.title)}</strong><small>${specialDayLabel(days)} ${item.repeats_yearly ? "· 每年" : ""}</small></div>
       <span class="event-emoji">${esc(item.emoji)}</span>
-      <button class="delete-row" data-delete="special-days" data-id="${item.id}" aria-label="刪除 ${esc(item.title)}">${icon("trash")}</button>
+      <div class="event-actions">
+        <button type="button" class="delete-row edit-row" data-edit-special-day="${item.id}" aria-label="編輯 ${esc(item.title)}" title="編輯特別日子">${icon("edit")}</button>
+        <button type="button" class="delete-row" data-delete="special-days" data-id="${item.id}" aria-label="刪除 ${esc(item.title)}" title="刪除特別日子">${icon("trash")}</button>
+      </div>
     </div>`;
   }).join("") : emptyState("新增一個值得期待的日子", "♡");
   return `${header("特別日子", "所有值得記住的時刻", "calendar", "yellow", `<button class="more-button" data-open-modal="event" aria-label="新增特別日子">${icon("plus")}</button>`)}
@@ -817,6 +864,12 @@ function openExpenseEditor(itemId) {
   const item = state.data.expenses.find((expense) => expense.id === Number(itemId));
   if (!item) return toast("找不到要編輯的開支", true);
   openModal("expense", { item });
+}
+
+function openSpecialDayEditor(itemId) {
+  const item = state.data.special_days.find((day) => day.id === Number(itemId));
+  if (!item) return toast("找不到要編輯的特別日子", true);
+  openModal("specialDayEdit", { item });
 }
 
 function shoppingItem(itemId) {
@@ -1765,6 +1818,9 @@ function bindEvents() {
     const editShopping = event.target.closest("[data-edit-shopping]");
     if (editShopping) return openShoppingEditor(editShopping.dataset.editShopping);
 
+    const editSpecialDay = event.target.closest("[data-edit-special-day]");
+    if (editSpecialDay) return openSpecialDayEditor(editSpecialDay.dataset.editSpecialDay);
+
     if (event.target.closest("[data-clear-shopping]")) return clearCompletedShopping();
 
     const remove = event.target.closest("[data-delete]");
@@ -1780,8 +1836,11 @@ function bindEvents() {
     if (event.target.closest("#save-layout")) return saveLayout();
     if (event.target.closest("#restore-widgets")) return restoreWidgets();
     if (event.target.closest(".notification-button")) {
+      refreshSpecialDayDates();
+      const reminder = updateSpecialDayNotification();
+      switchView("living");
       $("#moments")?.scrollIntoView({ behavior: "smooth", block: "center" });
-      return toast("最近的特別日子都在這裡");
+      return toast(reminder.message);
     }
   });
 
@@ -1825,6 +1884,10 @@ function bindEvents() {
   ["input", "change"].forEach((eventName) => document.addEventListener(eventName, (event) => {
     if (event.target.closest("#dynamic-form")?.dataset.formType === "split") updateSplitCalculator();
   }));
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) refreshSpecialDayDates();
+  });
+
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && !$("#modal-backdrop").hidden) closeModal();
   });
@@ -1850,6 +1913,7 @@ function setupTime() {
 }
 
 setupTime();
+setInterval(refreshSpecialDayDates, 60_000);
 bindEvents();
 loadDashboard().then(() => {
   if (location.hash === "#admin" || location.hash === "#params") {

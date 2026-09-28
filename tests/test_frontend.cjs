@@ -177,3 +177,54 @@ test('save conflict keeps the draft, requires review, and sends reviewed IDs on 
   await c.submitForm({ preventDefault() {}, currentTarget: form });
   assert.equal(c.closed, true);
 });
+
+const specialDay = (event_date, repeats_yearly = false, id = event_date) => ({
+  id, title: id, event_date, repeats_yearly,
+});
+
+for (const [label, today, date, yearly, expectedDate, days] of [
+  ['past one-time date', '2026-09-28', '2026-09-27', false, '2026-09-27', -1],
+  ['today', '2026-09-28', '2026-09-28', false, '2026-09-28', 0],
+  ['tomorrow', '2026-09-28', '2026-09-29', false, '2026-09-29', 1],
+  ['annual date today', '2026-09-28', '2020-09-28', true, '2026-09-28', 0],
+  ['annual date passed', '2026-09-28', '2020-09-27', true, '2027-09-27', 364],
+  ['annual year boundary', '2026-12-31', '2020-01-01', true, '2027-01-01', 1],
+  ['future first occurrence', '2026-09-28', '2028-09-29', true, '2028-09-29', 732],
+  ['leap day stays February in leap year', '2027-03-02', '2024-02-29', true, '2028-02-29', 364],
+  ['leap day rolls to March in non-leap year', '2026-02-28', '2024-02-29', true, '2026-03-01', 1],
+  ['spring DST calendar day', '2026-03-08', '2026-03-09', false, '2026-03-09', 1],
+  ['autumn DST calendar day', '2026-11-01', '2026-11-02', false, '2026-11-02', 1],
+]) {
+  test(`special-day timing: ${label}`, () => {
+    const c = app();
+    const [result] = c.specialDayTimeline([specialDay(date, yearly)], new Date(`${today}T15:30:00`));
+    assert.equal(result.days, days);
+    assert.equal(result.next.getFullYear(), Number(expectedDate.slice(0, 4)));
+    assert.equal(result.next.getMonth() + 1, Number(expectedDate.slice(5, 7)));
+    assert.equal(result.next.getDate(), Number(expectedDate.slice(8, 10)));
+    assert.equal(c.specialDayLabel(result.days), days < 0 ? `已過 ${-days} 天` : days === 0 ? '就是今日' : `還有 ${days} 天`);
+  });
+}
+
+test('past special days cannot displace today or upcoming dates from the three-card preview', () => {
+  const c = app();
+  const items = [specialDay('2026-09-01'), specialDay('2026-09-27'), specialDay('2026-09-20'),
+    specialDay('2026-09-30'), specialDay('2026-09-28'), specialDay('2026-09-29')];
+  const result = c.specialDayTimeline(items, new Date('2026-09-28T12:00:00'));
+  assert.deepEqual(Array.from(result, (entry) => entry.item.id),
+    ['2026-09-28', '2026-09-29', '2026-09-30', '2026-09-27', '2026-09-20', '2026-09-01']);
+});
+
+test('notifications exclude past, distant and already-passed annual dates', () => {
+  const c = app();
+  const today = new Date('2026-09-28T12:00:00');
+  const excluded = [specialDay('2026-09-27'), specialDay('2026-10-06'), specialDay('2020-09-27', true)];
+  for (const items of [[], excluded]) {
+    const result = c.specialDayReminder(items, today);
+    assert.equal(result.count, 0);
+    assert.match(result.message, /沒有特別日子提醒/);
+  }
+  const result = c.specialDayReminder([...excluded, specialDay('2026-10-05'), specialDay('2020-09-28', true, '週年')], today);
+  assert.equal(result.count, 2);
+  assert.match(result.message, /週年，就是今日/);
+});

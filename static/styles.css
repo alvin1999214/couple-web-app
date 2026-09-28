@@ -523,7 +523,7 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 .assignee-badge::before { width: 6px; height: 6px; border-radius: 50%; background: #c69d8c; content: ""; }
 
 .moments-widget { min-height: 350px; background: #f8eee6; }
-.moments-widget::before { position: absolute; right: -30px; top: 22px; width: 140px; height: 140px; border: 22px solid rgba(255,255,255,.35); border-radius: 50%; content: ""; }
+.moments-widget::before { pointer-events: none; position: absolute; right: -30px; top: 22px; width: 140px; height: 140px; border: 22px solid rgba(255,255,255,.35); border-radius: 50%; content: ""; }
 .event-list { position: relative; display: flex; flex-direction: column; gap: 10px; }
 .event-card { display: flex; align-items: center; gap: 13px; padding: 13px; border: 1px solid rgba(221,203,188,.7); border-radius: 15px; background: rgba(255,253,249,.72); backdrop-filter: blur(5px); }
 .event-date { display: grid; width: 44px; height: 48px; flex: 0 0 auto; place-content: center; border-radius: 12px; background: white; text-align: center; box-shadow: 0 4px 12px rgba(89,65,47,.06); }
@@ -533,6 +533,9 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 .event-info strong { display: block; font-size: 11px; }
 .event-info small { display: block; margin-top: 4px; color: var(--muted); font-size: 9px; }
 .event-emoji { font-size: 18px; }
+.event-actions { display: flex; flex: 0 0 auto; gap: 4px; }
+.event-actions .delete-row { opacity: 1; }
+.moments-widget .more-button { width: 44px; height: 44px; }
 
 .insight-widget { min-height: 350px; }
 .insight-hero { display: flex; align-items: center; gap: 20px; margin-bottom: 20px; padding: 17px; border-radius: 17px; background: #f3f0e9; }
@@ -1720,11 +1723,15 @@ input::-webkit-datetime-edit { min-width: 0; padding: 0; }
   .split-preview > div { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .split-preview i { grid-column: 1/-1; grid-row: 2; width: 100%; }
   .split-preview span strong { font-size: 18px; }
-  .event-card { flex-wrap: wrap; gap: 8px; }
-  .event-info { flex-basis: calc(100% - 60px); }
 }
 
 @media (hover: none) {
   .button:hover, .icon-button:hover, .quick-actions button:hover, .round-check:hover { transform: none; }
   .button:active, .mobile-add:active { filter: brightness(.92); }
+}
+
+@media (max-width: 480px) {
+  .event-card { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 8px; }
+  .event-actions { grid-column: 2/-1; justify-self: end; }
+  .event-actions .delete-row { width: 44px; height: 44px; }
 }
