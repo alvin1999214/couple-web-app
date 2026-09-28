@@ -611,6 +611,10 @@ footer span { color: var(--coral); }
 #invoice-warnings { padding-left: 20px; color: var(--burgundy); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
 .invoice-confirm { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 13px; }
 .invoice-confirm input { width: 18px; height: 18px; flex-shrink: 0; }
+.invoice-duplicates { margin-top: 12px; padding: 12px; border: 1px solid var(--burgundy); border-radius: 6px; color: var(--burgundy); font-size: 13px; overflow-wrap: anywhere; }
+.invoice-duplicates p { margin: 8px 0; }
+.invoice-duplicates ul { padding-left: 20px; max-height: 220px; overflow-y: auto; }
+.invoice-duplicates li + li { margin-top: 10px; }
 .invoice-scan [hidden] { display: none !important; }
 .split-preview { grid-column: 1/-1; padding: 16px; border: 1px solid #e6e0d7; border-radius: 15px; background: #f7f4ee; }
 .split-preview > p { margin: 0 0 12px; color: var(--muted); font-size: 9px; font-weight: 600; letter-spacing: .5px; }

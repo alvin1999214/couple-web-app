@@ -117,7 +117,7 @@ class InvoiceOCRTests(unittest.TestCase):
                 draft = self.service.recognize({"image": self.image})["draft"]
                 self.assertEqual(draft["spent_on"], spent_on)
                 saved, status = Router(self.db).dispatch(
-                    "POST", "/api/expenses", {**draft, "invoice_image": self.image}, {},
+                    "POST", "/api/expenses", {**draft, "invoice_image": self.other_image(spent_on)}, {},
                 )
                 self.assertEqual(status, 201)
                 with self.db.connect() as connection:
@@ -133,6 +133,70 @@ class InvoiceOCRTests(unittest.TestCase):
                 self.assertEqual(visible[0]["spent_on"], spent_on)
                 self.assertEqual(visible[0]["has_invoice"], 1)
                 self.assertEqual(result["month_expense_total"], draft["amount"])
+
+    def other_image(self, suffix="retaken"):
+        # Distinct PNG fixture represents a different capture of a receipt.
+        raw = base64.b64decode(self.image.split(",")[1]) + suffix.encode()
+        return "data:image/png;base64," + base64.b64encode(raw).decode()
+
+    def receipt(self, **changes):
+        return {"title": "Shop", "amount": 123.45, "spent_on": "2026-09-26",
+                "invoice_image": self.image, **changes}
+
+    @patch("ourspace.services.invoice_ocr.urlopen")
+    def test_retaken_photo_warns_after_ocr_with_viewable_original(self, send):
+        saved = ExpenseService(self.db).create(self.receipt())["id"]
+        send.return_value = self.response()
+        result = self.service.recognize({"image": self.other_image()})
+        self.assertEqual([d["id"] for d in result["duplicates"]], [saved])
+        self.assertEqual(result["duplicates"][0]["reason"], "日期及金額相同")
+        image, status = Router(self.db).dispatch("GET", result["duplicates"][0]["image_url"], {}, {})
+        self.assertEqual(status, 200)
+        self.assertEqual(image["content"], base64.b64decode(self.image.split(",")[1]))
+
+    def test_same_image_is_blocked_even_with_changed_date_and_amount(self):
+        service = ExpenseService(self.db)
+        saved = service.create(self.receipt())["id"]
+        with self.assertRaises(ApiError) as caught:
+            service.create(self.receipt(amount=50, spent_on="2025-01-01"))
+        self.assertEqual(caught.exception.status, 409)
+        self.assertEqual(caught.exception.details["duplicates"][0]["id"], saved)
+        self.assertEqual(caught.exception.details["duplicates"][0]["reason"], "相同圖片")
+        with self.db.connect() as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM expenses").fetchone()[0], 1)
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM expense_invoices").fetchone()[0], 1)
+
+    def test_review_all_candidates_before_saving_and_recheck_new_matches(self):
+        service = ExpenseService(self.db)
+        first = service.create(self.receipt())["id"]
+        second = service.create(self.receipt(invoice_image=self.other_image(), reviewed_invoice_ids=[first]))["id"]
+        with self.assertRaises(ApiError) as caught:
+            service.create(self.receipt(reviewed_invoice_ids=[first]))
+        self.assertEqual({d["id"] for d in caught.exception.details["duplicates"]}, {first, second})
+        self.assertTrue(service.create(self.receipt(reviewed_invoice_ids=[first, second]))["ok"])
+
+    def test_different_receipts_and_manual_records_do_not_block(self):
+        service = ExpenseService(self.db)
+        service.create(self.receipt())
+        self.assertTrue(service.create(self.receipt(invoice_image=self.other_image(), amount=50))["ok"])
+        self.assertTrue(service.create(self.receipt(invoice_image=self.other_image("next day"), spent_on="2026-09-27"))["ok"])
+        service.create({"title": "Manual", "amount": 42, "spent_on": "2020-01-01"})
+        self.assertTrue(service.create(self.receipt(invoice_image=self.other_image("manual"), amount=42, spent_on="2020-01-01"))["ok"])
+
+    def test_deleted_invoice_no_longer_blocks(self):
+        service = ExpenseService(self.db)
+        service.delete(service.create(self.receipt())["id"])
+        self.assertTrue(service.create(self.receipt())["ok"])
+
+    def test_concurrent_identical_uploads_only_save_once(self):
+        from concurrent.futures import ThreadPoolExecutor
+        def save():
+            try:
+                return ExpenseService(self.db).create(self.receipt())["ok"]
+            except ApiError as exc:
+                return exc.status
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            self.assertCountEqual(list(pool.map(lambda _: save(), range(2))), [True, 409])
 
     @patch("ourspace.services.invoice_ocr.urlopen")
     def test_reviewed_date_overrides_ocr_date(self, send):

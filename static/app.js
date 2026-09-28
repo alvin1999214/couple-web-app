@@ -133,7 +133,9 @@ async function api(path, options = {}) {
     const payload = await response.json().catch(() => {
       throw new Error("伺服器回應不完整，未能確認結果");
     });
-    if (!response.ok) throw new Error(payload.error || "連線發生問題");
+    if (!response.ok) throw Object.assign(new Error(payload.error || "連線發生問題"), {
+      code: payload.code, duplicates: payload.duplicates,
+    });
     return payload;
   } catch (error) {
     if (error.name === "AbortError") throw new Error("連線已取消或逾時，請重試");
@@ -705,8 +707,20 @@ function invoiceControls() {
     <p id="invoice-status" role="status" aria-live="polite"></p>
     <img id="invoice-preview" alt="待核對的單據" hidden>
     <ul id="invoice-warnings" hidden></ul>
+    <div id="invoice-duplicates" class="invoice-duplicates" role="alert" hidden></div>
     <label class="invoice-confirm" hidden><input type="checkbox" id="invoice-confirm">已核對單據日期（包括年份）及港幣金額</label>
   </section>`;
+}
+
+function showInvoiceDuplicates(duplicates, form) {
+  const panel = $("#invoice-duplicates", form);
+  panel.hidden = !duplicates.length;
+  panel.innerHTML = duplicates.length ? `
+    <strong>這張單據可能已經上傳過了</strong>
+    <p>請打開已有單據圖片，與本次照片比較。若是同一張，請取消記帳。</p>
+    <ul>${duplicates.map((item) => `<li><a href="/api/expenses/${Number(item.id)}/invoice" target="_blank" rel="noopener">查看單據圖片：${esc(item.title)}</a><br>${esc(item.spent_on)} · HK$${Number(item.amount).toFixed(2)} · ${esc(item.reason)}</li>`).join("")}</ul>
+    <label class="invoice-confirm"><input type="checkbox" id="invoice-duplicate-confirm" required>已查看圖片，確認本次是另一張單據，仍要記帳</label>` : "";
+  panel.dataset.reviewIds = JSON.stringify(duplicates.map((item) => item.id));
 }
 
 async function prepareInvoiceImage(file, { maxEdge = 2400, quality = 0.88, maxBytes = 4_000_000 } = {}) {
@@ -780,6 +794,7 @@ async function recognizeInvoice(file) {
       return li;
     }));
     warnings.hidden = !result.warnings.length;
+    showInvoiceDuplicates(result.duplicates || [], form);
     const confirm = $("#invoice-confirm", form);
     confirm.closest("label").hidden = false;
     confirm.required = true;
@@ -909,6 +924,14 @@ async function submitForm(event) {
   const payload = config.transform ? config.transform(raw) : raw;
   if (form.dataset.formType === "expense" && form.dataset.method === "POST" && invoiceImage) {
     payload.invoice_image = invoiceImage;
+    const duplicateConfirm = $("#invoice-duplicate-confirm", form);
+    if (duplicateConfirm && !duplicateConfirm.checked) {
+      duplicateConfirm.reportValidity();
+      return;
+    }
+    if (duplicateConfirm?.checked) {
+      payload.reviewed_invoice_ids = JSON.parse($("#invoice-duplicates", form).dataset.reviewIds);
+    }
   }
   const button = $("button[type=submit]", form);
   state.submitting = true;
@@ -940,6 +963,13 @@ async function submitForm(event) {
       const message = "資料已儲存，但清單載入失敗。請重新載入，毋須再次提交。";
       renderLoadError(message);
       toast(message, true);
+    } else if (error.code === "duplicate_invoice" && Array.isArray(error.duplicates)) {
+      showInvoiceDuplicates(error.duplicates, form);
+      $("#invoice-duplicates", form).scrollIntoView({ block: "nearest" });
+      status.textContent = "尚未儲存：請先查看疑似重複的單據圖片。";
+      status.hidden = false;
+      button.disabled = false;
+      button.textContent = "確認並記帳";
     } else {
       status.textContent = `${error.message}。未能確認是否已儲存，請先查看記錄再重試，以免重複記帳。`;
       status.hidden = false;

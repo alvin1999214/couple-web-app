@@ -58,7 +58,7 @@ def create_handler(router: Router, static_dir: Path):
                 else:
                     self.send_json(payload, status)
             except ApiError as exc:
-                self.send_json({"error": str(exc)}, exc.status)
+                self.send_json({**exc.details, "error": str(exc)}, exc.status)
             except sqlite3.IntegrityError:
                 self.send_json({"error": "資料不符合限制條件"}, HTTPStatus.BAD_REQUEST)
             except Exception as exc:

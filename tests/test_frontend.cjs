@@ -118,3 +118,62 @@ test('missing save acknowledgement must not close the form', async () => {
   assert.equal(c.closed, undefined);
   assert.match(status.textContent, /未確認儲存結果/);
 });
+
+test('API preserves duplicate candidates from a conflict response', async () => {
+  const c = app();
+  c.fetch = async () => ({ ok: false, json: async () => ({ error: '可能重複', code: 'duplicate_invoice', duplicates: [{ id: 7 }] }) });
+  await assert.rejects(c.api('/api/expenses'), (error) => error.code === 'duplicate_invoice' && error.duplicates[0].id === 7);
+});
+
+function duplicateSubmission() {
+  const setup = submission();
+  setup.c.document.createElement = () => ({
+    textContent: '',
+    get innerHTML() { return this.textContent.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;'); },
+  });
+  const panel = { dataset: {}, scrollIntoView() {} };
+  const confirm = { checked: false, reportValidity() { this.reported = true; } };
+  const baseQuery = setup.form.querySelector;
+  setup.form.querySelector = (selector) => selector === '#invoice-duplicates' ? panel
+    : selector === '#invoice-duplicate-confirm' ? (panel.hidden === false ? confirm : null) : baseQuery(selector);
+  return { ...setup, panel, confirm };
+}
+
+test('duplicate warning links images safely and resets on a new scan', () => {
+  const { c, form, panel } = duplicateSubmission();
+  c.showInvoiceDuplicates([{ id: 7, title: '<img src=x>', spent_on: '2026-09-26', amount: 123.45, reason: '日期及金額相同' }], form);
+  assert.equal(panel.hidden, false);
+  assert.match(panel.innerHTML, /href="\/api\/expenses\/7\/invoice"/);
+  assert.match(panel.innerHTML, /&lt;img src=x&gt;/);
+  assert.match(panel.innerHTML, /required/);
+  c.showInvoiceDuplicates([], form);
+  assert.equal(panel.hidden, true);
+  assert.equal(panel.innerHTML, '');
+  assert.equal(panel.dataset.reviewIds, '[]');
+});
+
+test('save conflict keeps the draft, requires review, and sends reviewed IDs on confirmation', async () => {
+  const { c, form, panel, confirm, status, button } = duplicateSubmission();
+  let calls = 0;
+  c.api = async () => {
+    calls++;
+    throw Object.assign(new Error('可能重複'), { code: 'duplicate_invoice', duplicates: [{ id: 7, title: 'Shop', spent_on: '2026-09-26', amount: 10, reason: '相同圖片' }] });
+  };
+  await c.submitForm({ preventDefault() {}, currentTarget: form });
+  assert.equal(c.closed, undefined);
+  assert.equal(panel.hidden, false);
+  assert.equal(button.disabled, false);
+  assert.match(status.textContent, /尚未儲存/);
+  assert.equal(vm.runInContext('invoiceImage', c), 'data:image/jpeg;base64,test');
+  await c.submitForm({ preventDefault() {}, currentTarget: form });
+  assert.equal(calls, 1);
+  assert.equal(confirm.reported, true);
+  confirm.checked = true;
+  c.api = async (_, options) => {
+    assert.deepEqual(JSON.parse(options.body).reviewed_invoice_ids, [7]);
+    return { ok: true, id: 8 };
+  };
+  c.loadDashboard = async () => {};
+  await c.submitForm({ preventDefault() {}, currentTarget: form });
+  assert.equal(c.closed, true);
+});

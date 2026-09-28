@@ -9,6 +9,7 @@ from .shared import Service
 from ..config import APP_NAME
 from ..errors import ApiError
 from ..invoice_images import decode_invoice_image
+from ..invoice_duplicates import find_invoice_duplicates
 from ..validation import iso_date
 
 
@@ -17,7 +18,7 @@ class InvoiceOCRService(Service):
 
     def recognize(self, data: dict) -> dict:
         image = data.get("image")
-        decode_invoice_image(image)
+        _, image_bytes = decode_invoice_image(image)
 
         key = os.getenv("INVOICE_OCR_API_KEY", "").strip()
         if not key or key == "sk-xxxxxx":
@@ -96,9 +97,12 @@ class InvoiceOCRService(Service):
         if not isinstance(category, str) or category not in categories:
             category = "other"
         title = result.get("title")
-        return {"draft": {
+        draft = {
             "title": title.strip()[:100] if isinstance(title, str) else "",
             "amount": round(amount, 2) if amount is not None else None,
             "category": category,
             "spent_on": spent_on,
-        }, "currency": currency, "warnings": warnings}
+        }
+        with self.database.connect() as connection:
+            duplicates = find_invoice_duplicates(connection, image_bytes, draft["spent_on"], draft["amount"])
+        return {"draft": draft, "currency": currency, "warnings": warnings, "duplicates": duplicates}
