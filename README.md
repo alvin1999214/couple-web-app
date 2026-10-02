@@ -127,12 +127,8 @@ Database lifecycle (ourspace/database.py)
 │   ├── split.py                   # 平均、自訂及收入比例分帳計算
 │   ├── validation.py              # 共用文字、數字、日期、類別及 boolean 驗證
 │   ├── migrations/
-│   │   ├── __init__.py            # 唯一 migration registry
-│   │   ├── types.py               # Immutable Migration 定義
-│   │   ├── helpers.py             # 安全 additive schema helpers
-│   │   ├── v001_initial.py        # 初始 tables
-│   │   ├── v002_shopping_completed_at.py
-│   │   └── v003_query_indexes.py
+│   │   ├── __init__.py            # Migration 定義、全部版本步驟及 registry
+│   │   └── helpers.py             # 安全 additive schema helpers
 │   └── services/
 │       ├── shared.py              # Service dependency base
 │       ├── dashboard.py           # Dashboard read model 及開支統計
@@ -222,6 +218,8 @@ iOS 可能保存舊的 touch icon；Logo 更新後如仍顯示舊圖，先刪除
 
 ## 資料庫及 Migration 規則
 
+Migration 固定集中在 `ourspace/migrations/` 的兩個 Python 檔案：`__init__.py` 保存定義、所有版本步驟及 registry，`helpers.py` 保存共用工具。只有 schema 或資料轉換需要新增版本，一般功能改版不必新增；新增版本也不必新增檔案。舊版升級邏輯仍須保留，讓既有資料庫可以跨版本升級。
+
 資料庫 schema 由 `schema_migrations` 記錄版本。程式啟動時只會依序執行尚未套用的 migration，每一步都在獨立 transaction 內完成；失敗時會 rollback，已套用的 migration 不會重跑。
 
 當既有資料庫需要升級，程式會先透過 SQLite backup API 建立一致性備份：
@@ -234,10 +232,10 @@ iOS 可能保存舊的 touch icon；Logo 更新後如仍顯示舊圖，先刪除
 
 新增 schema 變更時：
 
-1. 在 `ourspace/migrations/` 建立下一個連續版本，例如 `v004_expense_note.py`。
-2. 匯出一個 `Migration(4, "expense_note", apply)`，並在 `migrations/__init__.py` 註冊。
+1. 在 `ourspace/migrations/__init__.py` 新增下一個連續版本的函式，例如 `apply_v007_expense_note(connection)`；不用新增檔案。
+2. 在同一檔案的 `MIGRATIONS` 尾端加入 `Migration(7, "expense_note", apply_v007_expense_note)`。
 3. 新 field 優先先設為 nullable 或提供 default，再 backfill 舊資料。
-4. 不可修改或重新命名已發布的 migration；需要修正時建立下一版本。
+4. 保留已發布 migration 的版本號、名稱及執行邏輯；需要修正時在同一檔案追加下一版本。
 5. 在 `tests/test_migrations.py` 加入由舊 schema 升級並核對原有資料的測試。
 
 其他規則：
