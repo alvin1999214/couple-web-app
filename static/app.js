@@ -18,7 +18,8 @@ let categories = {
 };
 
 function syncCategories(list) {
-  if (Array.isArray(list) && list.length) {
+  if (Array.isArray(list)) {
+    categories = {};
     list.forEach((c) => {
       categories[c.key] = {
         label: c.label,
@@ -27,6 +28,7 @@ function syncCategories(list) {
         is_default: c.is_default,
       };
     });
+    if (state.category !== "all" && !categories[state.category]) state.category = "all";
     updateCategoryDropdowns();
   }
 }
@@ -36,7 +38,7 @@ function updateCategoryDropdowns() {
   if (!select) return;
   const current = select.value;
   select.innerHTML = '<option value="all">全部類別</option>' + Object.entries(categories).map(([k, v]) => `<option value="${esc(k)}">${esc(v.label)}</option>`).join("");
-  if (categories[current] || current === "all") select.value = current;
+  select.value = categories[current] || current === "all" ? current : "all";
 }
 
 
@@ -609,6 +611,19 @@ const forms = {
         value: "tag",
       },
     ],
+  },
+  categoryDelete: {
+    title: "移轉並移除分類",
+    endpoint: (item) => `/api/categories/${encodeURIComponent(item.key)}`,
+    method: "DELETE",
+    success: "分類已從資料庫移除，相關項目已移轉",
+    submitLabel: "確認移轉並移除",
+    fields: ({ item, targets }) => [{
+      name: "target_category", label: "移轉至分類", type: "select", full: true,
+      required: true, autofocus: true,
+      options: [["", "請選擇目標分類"], ...targets.filter((c) => c.key !== item.key).map((c) => [c.key, c.label])],
+    }],
+    extra: ({ item }) => `<p class="form-note">將「${esc(item.label)}」的 ${item.expense_count} 筆開支及 ${item.shopping_count} 項購物（包括已完成項目）移至所選分類，再永久刪除原分類的資料庫記錄。項目內容及單據會保留。</p>`,
   },
   categoryEdit: {
     title: "編輯記帳分類",
@@ -1247,6 +1262,13 @@ async function submitForm(event) {
       throw new Error("伺服器未確認儲存結果");
     }
     saved = true;
+    if (form.dataset.formType === "categoryDelete") {
+      const removedKey = decodeURIComponent(form.dataset.endpoint.split("/").pop());
+      delete categories[removedKey];
+      if (state.category === removedKey) state.category = "all";
+      if (adminState.filters.category === removedKey) delete adminState.filters.category;
+      updateCategoryDropdowns();
+    }
     // OCR dates can fall outside the current month or active filters.
     const changedFilter = form.dataset.formType === "expense" && revealSavedExpense(payload);
     closeModal({ saved: true });
@@ -1718,7 +1740,7 @@ function renderAdminTable(data) {
         <td>
           <div class="admin-row-actions">
             <button type="button" class="icon-button edit" data-admin-edit="categories" data-id="${esc(cat.key)}" title="編輯分類">${icon("edit")}</button>
-            ${cat.is_default ? "" : `<button type="button" class="icon-button delete" data-admin-delete="categories" data-id="${esc(cat.key)}" title="刪除分類">${icon("trash")}</button>`}
+            ${cat.is_default ? "" : `<button type="button" class="icon-button delete" data-admin-delete="categories" data-id="${esc(cat.key)}" title="移轉／移除分類" aria-label="移轉／移除分類">${icon("trash")}</button>`}
           </div>
         </td>
       </tr>
@@ -1955,18 +1977,34 @@ function openAdminEdit(table, idOrKey) {
 }
 
 async function deleteAdminEntry(table, idOrKey) {
-  let confirmMsg = `確定要刪除這筆資料嗎？`;
   if (table === "categories") {
-    confirmMsg = `確定要刪除自訂分類「${idOrKey}」嗎？\n\n注意：原先使用此分類的開支與購物項目會自動轉移至「其他」，不會遺失。`;
-  } else if (table === "settings") {
-    confirmMsg = `確定要刪除系統參數「${idOrKey}」嗎？`;
+    try {
+      const list = await api("/api/categories");
+      syncCategories(list);
+      const item = list.find((c) => c.key === idOrKey);
+      if (!item) throw new Error("找不到指定分類");
+      if (item.is_default) throw new Error("系統預設分類不可刪除");
+      if (item.expense_count + item.shopping_count > 0) {
+        openModal("categoryDelete", { item, targets: list });
+        return;
+      }
+      if (!window.confirm(`「${item.label}」沒有開支或購物項目，確定永久刪除此分類的資料庫記錄？`)) return;
+      await api(`/api/categories/${encodeURIComponent(idOrKey)}`, { method: "DELETE" });
+      syncCategories(list.filter((c) => c.key !== idOrKey));
+      toast("分類已從資料庫移除");
+      await loadDashboard({ quiet: true });
+      await loadAdminTable(adminState.currentTable);
+      await loadAdminOverview();
+    } catch (error) {
+      toast(error.message, true);
+    }
+    return;
   }
+  const confirmMsg = table === "settings" ? `確定要刪除系統參數「${idOrKey}」嗎？` : "確定要刪除這筆資料嗎？";
   if (!window.confirm(confirmMsg)) return;
 
   try {
-    if (table === "categories") {
-      await api(`/api/categories/${encodeURIComponent(idOrKey)}`, { method: "DELETE" });
-    } else if (table === "settings") {
+    if (table === "settings") {
       await api(`/api/admin/settings/${encodeURIComponent(idOrKey)}`, { method: "DELETE" });
     } else {
       await api(`/api/${table}/${idOrKey}`, { method: "DELETE" });

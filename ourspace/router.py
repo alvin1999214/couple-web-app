@@ -84,7 +84,7 @@ class Router:
             self._route("GET", r"/api/categories", lambda p, b, q: categories.list(), setup=False),
             self._route("POST", r"/api/categories", lambda p, b, q: categories.create(b), status=201),
             self._route("PATCH", r"/api/categories/(?P<key>[a-zA-Z0-9_\-]+)", lambda p, b, q: categories.update(p["key"], b)),
-            self._route("DELETE", r"/api/categories/(?P<key>[a-zA-Z0-9_\-]+)", lambda p, b, q: categories.delete(p["key"])),
+            self._route("DELETE", r"/api/categories/(?P<key>[a-zA-Z0-9_\-]+)", lambda p, b, q: categories.delete(p["key"], b.get("target_category"))),
 
             # Admin & DB Dashboard API
             self._route("GET", r"/api/admin/overview", lambda p, b, q: admin.overview()),

@@ -64,20 +64,36 @@ class CategoryService(Service):
             connection.execute(f"UPDATE categories SET {', '.join(updates)} WHERE key = ?", params)
         return {"ok": True}
 
-    def delete(self, key: str) -> dict:
+    def delete(self, key: str, target_category: str | None = None) -> dict:
         normalized_key = str(key).strip().lower()
         with self.database.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
             row = connection.execute("SELECT is_default FROM categories WHERE key = ?", (normalized_key,)).fetchone()
             if not row:
                 raise ApiError("找不到指定分類", 404)
             if row["is_default"]:
                 raise ApiError("系統預設分類不可刪除", 400)
 
-            # Safely migrate existing expenses and shopping items using this category to 'other'
-            connection.execute("UPDATE expenses SET category = 'other' WHERE category = ?", (normalized_key,))
-            connection.execute("UPDATE shopping_items SET category = 'other' WHERE category = ?", (normalized_key,))
+            counts = {
+                table: connection.execute(
+                    f"SELECT COUNT(*) FROM {table} WHERE category = ?", (normalized_key,),
+                ).fetchone()[0]
+                for table in ("expenses", "shopping_items")
+            }
+            target = str(target_category or "").strip().lower()
+            if target:
+                if target == normalized_key:
+                    raise ApiError("移轉目標不可與原分類相同")
+                if not connection.execute("SELECT 1 FROM categories WHERE key = ?", (target,)).fetchone():
+                    raise ApiError("找不到移轉目標分類", 404)
+            elif any(counts.values()):
+                raise ApiError("此分類仍有開支或購物項目，請選擇移轉目標後再移除", 409)
+
+            if target:
+                connection.execute("UPDATE expenses SET category = ? WHERE category = ?", (target, normalized_key))
+                connection.execute("UPDATE shopping_items SET category = ? WHERE category = ?", (target, normalized_key))
             connection.execute("DELETE FROM categories WHERE key = ?", (normalized_key,))
-        return {"ok": True}
+        return {"ok": True, "migrated": counts, "target_category": target or None}
 
     @staticmethod
     def _fetch_all_with_counts(connection: sqlite3.Connection) -> list[dict]:

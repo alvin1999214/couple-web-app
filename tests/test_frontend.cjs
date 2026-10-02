@@ -301,3 +301,52 @@ test('API exposes status so a rejected batch stays editable rather than becoming
   c.fetch = async () => ({ok:false,status:409,json:async()=>({error:'duplicate',code:'duplicate_invoice',duplicates:[]})});
   await assert.rejects(c.api('/api/expenses/orders/import'), error => error.status === 409 && error.code === 'duplicate_invoice');
 });
+
+test('category refresh removes deleted options and resets the deleted filter', () => {
+  const c = app();
+  c.esc = (value) => String(value);
+  const select = { value: 'removed', innerHTML: '' };
+  c.document.querySelector = () => select;
+  vm.runInContext(`categories.removed = {label: '舊分類'}; state.category = 'removed';`, c);
+  c.syncCategories([{ key: 'other', label: '其他' }]);
+  assert.equal(vm.runInContext('state.category', c), 'all');
+  assert.equal(vm.runInContext('categories.removed', c), undefined);
+  assert.equal(select.innerHTML.includes('removed'), false);
+});
+
+test('populated category opens migration selection without deleting', async () => {
+  const c = app();
+  const calls = [];
+  c.document.querySelector = () => null;
+  c.api = async (...args) => { calls.push(args); return [
+    { key: 'source', label: '原分類', expense_count: 0, shopping_count: 1 },
+    { key: 'target', label: '目的地', expense_count: 0, shopping_count: 0 },
+  ]; };
+  let modal;
+  c.openModal = (type, context) => { modal = { type, context }; };
+  await c.deleteAdminEntry('categories', 'source');
+  assert.equal(calls.length, 1);
+  assert.equal(modal.type, 'categoryDelete');
+  c.modalContext = modal.context;
+  const field = vm.runInContext('forms.categoryDelete.fields(modalContext)[0]', c);
+  assert.equal(field.required, true);
+  assert.equal(field.options.some(([key]) => key === 'source'), false);
+  assert.equal(field.options.some(([key]) => key === 'target'), true);
+});
+
+test('empty category deletes without requiring a migration destination', async () => {
+  const c = app();
+  const calls = [];
+  c.document.querySelector = () => null;
+  c.window.confirm = () => true;
+  c.api = async (path, options) => {
+    calls.push({ path, options });
+    return options ? { ok: true } : [{ key: 'empty', label: '空分類', expense_count: 0, shopping_count: 0 }];
+  };
+  c.toast = () => {};
+  c.loadDashboard = c.loadAdminTable = c.loadAdminOverview = async () => {};
+  await c.deleteAdminEntry('categories', 'empty');
+  assert.equal(calls[1].path, '/api/categories/empty');
+  assert.equal(calls[1].options.method, 'DELETE');
+  assert.equal(vm.runInContext('categories.empty', c), undefined);
+});

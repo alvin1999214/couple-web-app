@@ -46,7 +46,7 @@ def create_handler(router: Router, static_dir: Path):
                 limit = MAX_OCR_BODY_BYTES if method == "POST" and parsed.path in {"/api/expenses/ocr", "/api/expenses"} else MAX_BODY_BYTES
                 if method == "POST" and parsed.path in {"/api/expenses/orders/ocr", "/api/expenses/orders/import"}:
                     limit = MAX_ORDER_BODY_BYTES
-                body = self.read_json(limit) if method in {"POST", "PATCH"} else {}
+                body = self.read_json(limit) if method in {"POST", "PATCH", "DELETE"} else {}
                 payload, status = router.dispatch(method, parsed.path, body, parse_qs(parsed.query))
                 if isinstance(payload, dict) and payload.get("__image__"):
                     self.send_response(status)

@@ -1,3 +1,9 @@
+import json
+import threading
+from http.client import HTTPConnection
+from http.server import ThreadingHTTPServer
+
+import sqlite3
 import tempfile
 import unittest
 from datetime import date, timedelta
@@ -5,6 +11,8 @@ from pathlib import Path
 
 from ourspace.database import Database
 from ourspace.errors import ApiError
+from ourspace.router import Router
+from ourspace.http import create_handler
 from ourspace.services.categories import CategoryService
 from ourspace.services.dashboard import DashboardService
 from ourspace.services.expenses import ExpenseService
@@ -83,7 +91,7 @@ class CategoryServiceTests(unittest.TestCase):
             self.service.delete("groceries")
         self.assertEqual(ctx.exception.status, 400)
 
-    def test_delete_custom_category_reassigns_to_other(self):
+    def test_delete_custom_category_reassigns_to_selected_category(self):
         self.service.create({"key": "fitness", "label": "健身運動"})
         expenses = ExpenseService(self.database)
         created = expenses.create({
@@ -109,19 +117,92 @@ class CategoryServiceTests(unittest.TestCase):
             self.assertEqual(shop_cat, "fitness")
 
         # Delete category
-        del_result = self.service.delete("fitness")
+        del_result, status = Router(self.database).dispatch(
+            "DELETE", "/api/categories/fitness", {"target_category": "leisure"}, {},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(del_result["migrated"], {"expenses": 1, "shopping_items": 1})
         self.assertTrue(del_result["ok"])
 
         # Category is gone from categories table
         keys = {c["key"] for c in self.service.list()}
         self.assertNotIn("fitness", keys)
 
-        # Expense and shopping item reassigned to other
+        # Expense and shopping item reassigned to selected target
         with self.database.connect() as conn:
             exp_cat = conn.execute("SELECT category FROM expenses WHERE id = ?", (created["id"],)).fetchone()[0]
             shop_cat = conn.execute("SELECT category FROM shopping_items WHERE id = ?", (created_shop["id"],)).fetchone()[0]
-            self.assertEqual(exp_cat, "other")
-            self.assertEqual(shop_cat, "other")
+            self.assertEqual(exp_cat, "leisure")
+            self.assertEqual(shop_cat, "leisure")
+
+    def test_http_delete_reads_migration_target_from_json_body(self):
+        self.service.create({"key": "source", "label": "原分類"})
+        ShoppingService(self.database).create({"name": "項目", "category": "source"})
+        handler = create_handler(Router(self.database), Path("static"))
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        client = HTTPConnection(*server.server_address, timeout=5)
+        try:
+            client.request("DELETE", "/api/categories/source", json.dumps({"target_category": "home"}),
+                           {"Content-Type": "application/json"})
+            response = client.getresponse()
+            self.assertEqual(response.status, 200)
+            self.assertEqual(json.loads(response.read())["target_category"], "home")
+            with self.database.connect() as conn:
+                self.assertEqual(conn.execute("SELECT category FROM shopping_items").fetchone()[0], "home")
+                self.assertIsNone(conn.execute("SELECT 1 FROM categories WHERE key = 'source'").fetchone())
+        finally:
+            client.close()
+            server.shutdown()
+            server.server_close()
+            thread.join()
+
+    def test_empty_category_is_physically_deleted_and_stays_deleted(self):
+        self.service.create({"key": "unused", "label": "多餘"})
+        self.service.delete("unused")
+        self.database.initialize()
+        with self.database.connect() as conn:
+            self.assertIsNone(conn.execute("SELECT * FROM categories WHERE key = 'unused'").fetchone())
+
+    def test_populated_category_requires_valid_distinct_target(self):
+        self.service.create({"key": "source", "label": "原分類"})
+        item = ShoppingService(self.database).create({"name": "項目", "category": "source"})
+        for target, status in [(None, 409), ("", 409), ("source", 400), ("missing", 404)]:
+            with self.subTest(target=target):
+                with self.assertRaises(ApiError) as ctx:
+                    self.service.delete("source", target)
+                self.assertEqual(ctx.exception.status, status)
+                with self.database.connect() as conn:
+                    self.assertIsNotNone(conn.execute("SELECT 1 FROM categories WHERE key = 'source'").fetchone())
+                    self.assertEqual(conn.execute("SELECT category FROM shopping_items WHERE id = ?", (item["id"],)).fetchone()[0], "source")
+
+    def test_completed_shopping_and_linked_expense_migrate_to_custom_target(self):
+        for key in ("source", "target"):
+            self.service.create({"key": key, "label": key})
+        shopping = ShoppingService(self.database)
+        item = shopping.create({"name": "已買", "category": "source"})
+        shopping.complete(item["id"], {"actual_price": 123, "paid_by": "Yuki"})
+        with self.database.connect() as conn:
+            before = dict(conn.execute("SELECT * FROM shopping_items WHERE id = ?", (item["id"],)).fetchone())
+            expense = dict(conn.execute("SELECT * FROM expenses WHERE id = ?", (before["expense_id"],)).fetchone())
+        self.service.delete("source", "target")
+        with self.database.connect() as conn:
+            after = dict(conn.execute("SELECT * FROM shopping_items WHERE id = ?", (item["id"],)).fetchone())
+            after_expense = dict(conn.execute("SELECT * FROM expenses WHERE id = ?", (before["expense_id"],)).fetchone())
+        self.assertEqual(after, {**before, "category": "target"})
+        self.assertEqual(after_expense, {**expense, "category": "target"})
+
+    def test_failed_delete_rolls_back_migration(self):
+        self.service.create({"key": "source", "label": "原分類"})
+        ShoppingService(self.database).create({"name": "項目", "category": "source"})
+        with self.database.connect() as conn:
+            conn.execute("CREATE TRIGGER reject_delete BEFORE DELETE ON categories BEGIN SELECT RAISE(ABORT, 'test'); END")
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.service.delete("source", "other")
+        with self.database.connect() as conn:
+            self.assertEqual(conn.execute("SELECT category FROM shopping_items").fetchone()[0], "source")
+            self.assertIsNotNone(conn.execute("SELECT 1 FROM categories WHERE key = 'source'").fetchone())
 
     def test_custom_category_in_dashboard_breakdown(self):
         self.service.create({"key": "medical", "label": "醫療健康", "color": "#00aa88"})
