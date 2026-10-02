@@ -134,7 +134,7 @@ async function api(path, options = {}) {
       throw new Error("伺服器回應不完整，未能確認結果");
     });
     if (!response.ok) throw Object.assign(new Error(payload.error || "連線發生問題"), {
-      code: payload.code, duplicates: payload.duplicates,
+      code: payload.code, duplicates: payload.duplicates, status: response.status,
     });
     return payload;
   } catch (error) {
@@ -713,6 +713,8 @@ function localISODate(addDays = 0) {
 
 function openModal(type, context = {}) {
   if (!state.data || state.submitting) return;
+  if (type === "orderImport") return openOrderImport();
+  cancelOrderImport();
   const config = forms[type];
   if (!config) return;
   cancelInvoiceOCR();
@@ -736,6 +738,246 @@ function openModal(type, context = {}) {
   setTimeout(() => $("#dynamic-form [autofocus]")?.focus(), 120);
 }
 
+let orderImport = null;
+
+function cancelOrderImport() {
+  orderImport?.request?.abort();
+  orderImport = null;
+  $("#modal-backdrop .modal")?.classList.remove("order-import-modal");
+}
+
+function openOrderImport() {
+  cancelInvoiceOCR();
+  cancelOrderImport();
+  invoiceImage = null;
+  orderImport = { images: [], orders: [], request: null, token: null, pending: null };
+  const form = $("#dynamic-form");
+  form.dataset.formType = "orderImport";
+  $("#modal-title").textContent = "淘寶／拼多多截圖記賬";
+  $("#modal-backdrop .modal").classList.add("order-import-modal");
+  form.innerHTML = `<section class="order-import full">
+    <p class="form-note">一次上傳 1–10 張訂單頁面，每張可包含多筆訂單。截圖會傳送至 AI 服務，確認前不會記帳。沒有購物日期的項目會留空。</p>
+    <label class="button secondary invoice-file">選擇多張訂單截圖<input id="order-files" type="file" multiple accept="image/jpeg,image/png,image/webp,image/heic,image/heif" aria-label="上傳淘寶或拼多多訂單截圖"></label>
+    <p id="order-status" role="status" aria-live="polite">請選擇清晰、包含實付金額的訂單截圖。</p>
+    <div id="order-previews" class="order-previews"></div>
+    <ul id="order-warnings" class="order-warnings" hidden></ul>
+    <section id="order-review" hidden>
+      <div class="order-bulk">
+        <label>購物日期<input id="order-bulk-date" type="date"></label>
+        <button class="button secondary" type="button" id="order-date-all">套用至全部</button>
+        <button class="button secondary" type="button" id="order-date-selected">套用至勾選項目</button>
+      </div>
+      <div class="order-bulk">
+        <label>人民幣換港幣匯率<input id="order-rate" type="number" min="0.000001" step="any" placeholder="1 CNY = ? HKD"></label>
+        <button class="button secondary" type="button" id="order-convert">換算勾選項目</button>
+      </div>
+      <p class="form-note">匯率由你提供，換算會覆蓋勾選項目的港幣金額，請按實際扣款核對。未付款及已全額退款的訂單不應記入開支。</p>
+      <label>此批付款人<select id="order-payer" required><option value="">請選擇付款人</option>${[...state.data.settings.couple_names, "共同"].map(name => `<option value="${esc(name)}">${esc(name)}</option>`).join("")}</select></label>
+      <div class="order-selection"><label class="invoice-confirm"><input id="order-select-all" type="checkbox" checked><span>全選（用於批量日期／換算）</span></label><strong id="order-count"></strong></div>
+      <p class="form-note">所有保留項目都會入賬；不需要的項目請按「移除」。每筆會保存首張來源截圖供日後查看。</p>
+      <div id="order-rows"></div>
+      <div id="invoice-duplicates" class="invoice-duplicates" role="alert" hidden></div>
+      <label class="invoice-confirm"><input id="order-confirm" type="checkbox" required><span>已核對每筆訂單、重複項目、購物日期及港幣實付金額</span></label>
+    </section>
+    <p id="form-save-status" class="form-note" role="alert" hidden></p>
+    <div class="form-actions"><button type="button" class="button secondary" id="cancel-modal">取消</button><button type="submit" class="button primary" id="order-save" disabled>確認並批量記帳</button></div>
+  </section>`;
+  $("#order-files", form).addEventListener("change", event => {
+    const files = [...event.target.files];
+    event.target.value = "";
+    if (files.length) recognizeOrders(files);
+  });
+  $("#order-date-all", form).addEventListener("click", () => applyOrderDate(false));
+  $("#order-date-selected", form).addEventListener("click", () => applyOrderDate(true));
+  $("#order-convert", form).addEventListener("click", convertOrderAmounts);
+  $("#order-select-all", form).addEventListener("change", event => {
+    orderImport.orders.forEach(row => { row.selected = event.target.checked; });
+    renderOrderRows();
+  });
+  $("#order-rows", form).addEventListener("input", event => {
+    const row = orderImport?.orders[Number(event.target.closest("[data-order-row]")?.dataset.orderRow)];
+    const field = event.target.dataset.orderField;
+    if (!row || !field) return;
+    row[field] = field === "selected" ? event.target.checked : event.target.value;
+    $("#order-confirm").checked = false;
+    if (field === "selected") updateOrderSelection();
+  });
+  $("#order-rows", form).addEventListener("click", event => {
+    const button = event.target.closest("[data-remove-order]");
+    if (!button || state.submitting || orderImport?.request) return;
+    orderImport.orders.splice(Number(button.dataset.removeOrder), 1);
+    renderOrderRows();
+  });
+  $("#modal-backdrop").hidden = false;
+  document.body.style.overflow = "hidden";
+}
+
+function updateOrderSelection() {
+  const rows = orderImport.orders;
+  const selected = rows.filter(row => row.selected).length;
+  $("#order-count").textContent = `${rows.length} 筆待記帳 · 勾選 ${selected} 筆`;
+  const checkbox = $("#order-select-all");
+  checkbox.checked = rows.length > 0 && selected === rows.length;
+  checkbox.indeterminate = selected > 0 && selected < rows.length;
+}
+
+function renderOrderRows() {
+  const rows = orderImport.orders;
+  $("#order-rows").innerHTML = rows.map((row, index) => `<article class="order-row" data-order-row="${index}">
+    <header><label class="invoice-confirm"><input type="checkbox" data-order-field="selected" ${row.selected ? "checked" : ""}><span>第 ${index + 1} 筆 · 來源第 ${row.source_pages.join("、")} 張</span></label><button type="button" class="button secondary" data-remove-order="${index}">移除</button></header>
+    <div class="order-fields">
+      <label>平台<select data-order-field="platform">${["淘寶", "拼多多"].map(p => `<option ${row.platform === p ? "selected" : ""}>${p}</option>`).join("")}</select></label>
+      <label>訂單編號（如有）<input data-order-field="order_id" maxlength="100" value="${esc(row.order_id || "")}"></label>
+      <label class="full">開支名稱<input data-order-field="title" required maxlength="100" value="${esc(row.title)}"></label>
+      <label>原幣實付金額<input data-order-field="original_amount" type="number" min="0.01" max="100000000" step="0.01" value="${esc(row.original_amount ?? "")}"></label>
+      <label>原幣幣別<select data-order-field="currency">${[["", "未能確認"], ["CNY", "人民幣 CNY"], ["HKD", "港幣 HKD"], ...(![null, "", "CNY", "HKD"].includes(row.currency) ? [[row.currency, row.currency]] : [])].map(([value, label]) => `<option value="${esc(value)}" ${value === (row.currency || "") ? "selected" : ""}>${esc(label)}</option>`).join("")}</select></label>
+      <label>入賬港幣金額<input data-order-field="amount" type="number" required min="0.01" max="100000000" step="0.01" value="${esc(row.amount ?? "")}" placeholder="實際扣款港幣"></label>
+      <label>購物日期${row.spent_on ? "" : " · 待補填"}<input data-order-field="spent_on" type="date" required value="${esc(row.spent_on || "")}"></label>
+      <label class="full">分類<select data-order-field="category">${categoryOptions().map(([key, label]) => `<option value="${esc(key)}" ${row.category === key ? "selected" : ""}>${esc(label)}</option>`).join("")}</select></label>
+    </div>
+    ${row.warnings.length ? `<ul class="order-warnings">${row.warnings.map(w => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}
+  </article>`).join("");
+  $("#order-save").disabled = !rows.length;
+  $("#order-confirm").checked = false;
+  updateOrderSelection();
+}
+
+function applyOrderDate(selectedOnly) {
+  if (!orderImport || orderImport.request || state.submitting) return;
+  const date = $("#order-bulk-date").value;
+  if (!date) return toast("請先選擇購物日期", true);
+  let count = 0;
+  orderImport.orders.forEach(row => {
+    if (!selectedOnly || row.selected) { row.spent_on = date; count += 1; }
+  });
+  renderOrderRows();
+  toast(count ? `已為 ${count} 筆訂單填寫日期` : "請先勾選項目", !count);
+}
+
+function convertOrderAmounts() {
+  if (!orderImport || orderImport.request || state.submitting) return;
+  const rate = Number($("#order-rate").value);
+  if (!Number.isFinite(rate) || rate <= 0) return toast("請填寫有效匯率", true);
+  let count = 0;
+  orderImport.orders.forEach(row => {
+    const original = Number(row.original_amount);
+    const amount = Math.round((original * rate + Number.EPSILON) * 100) / 100;
+    if (row.selected && row.currency === "CNY" && original > 0 && Number.isFinite(amount) && amount > 0 && amount <= 100000000) {
+      row.amount = amount;
+      count += 1;
+    }
+  });
+  renderOrderRows();
+  toast(count ? `已換算 ${count} 筆人民幣訂單，請核對實際扣款` : "沒有可換算的已勾選人民幣訂單", !count);
+}
+
+async function recognizeOrders(files) {
+  const session = orderImport;
+  if (!session || session.request || state.submitting || session.pending) return;
+  if (files.length > 10) return toast("每批最多 10 張截圖", true);
+  const form = $("#dynamic-form");
+  const request = new AbortController();
+  session.request = request;
+  const controls = $$("input, select, button", form).filter(el => el.id !== "cancel-modal");
+  const disabled = controls.map(el => el.disabled);
+  controls.forEach(el => { el.disabled = true; });
+  const status = $("#order-status");
+  let succeeded = false;
+  try {
+    const images = [], stored = [];
+    for (const [index, file] of files.entries()) {
+      status.textContent = `正在處理第 ${index + 1}／${files.length} 張截圖…`;
+      images.push(await prepareInvoiceImage(file, { maxEdge: 3000, maxBytes: 1_000_000 }));
+      if (orderImport !== session) return;
+      stored.push(await prepareInvoiceImage(file, { maxEdge: 2000, quality: 0.8, maxBytes: 600_000 }));
+      if (orderImport !== session) return;
+    }
+    status.textContent = `正在識別 ${images.length} 張訂單截圖，請稍候…`;
+    const result = await api("/api/expenses/orders/ocr", { method: "POST", body: JSON.stringify({ images }), signal: request.signal, timeoutMs: 165_000 });
+    if (orderImport !== session) return;
+    if (!Array.isArray(result.orders)) throw new Error("識別結果不完整，請重試");
+    session.images = stored;
+    session.orders = result.orders.map(row => ({ ...row, selected: true }));
+    // Cryptographic UUID is unavailable on some HTTP LAN deployments.
+    session.token = Array.from(crypto.getRandomValues(new Uint8Array(24)), b => b.toString(16).padStart(2, "0")).join("");
+    $("#order-previews").innerHTML = images.map((src, i) => `<details><summary>查看第 ${i + 1} 張截圖</summary><img src="${src}" alt="第 ${i + 1} 張訂單截圖"></details>`).join("");
+    $("#order-warnings").innerHTML = (result.warnings || []).map(w => `<li>${esc(w)}</li>`).join("");
+    $("#order-warnings").hidden = !(result.warnings || []).length;
+    $("#order-review").hidden = !session.orders.length;
+    $("#invoice-duplicates").hidden = true;
+    $("#invoice-duplicates").innerHTML = "";
+    $("#form-save-status").hidden = true;
+    succeeded = true;
+    status.textContent = session.orders.length ? `已識別 ${session.orders.length} 筆，請核對；新選截圖會替換本批草稿。` : "未找到可記帳的已付款訂單，請查看提示或更換截圖。";
+  } catch (error) {
+    if (orderImport === session) status.textContent = error.message + (session.orders.length ? "；原有核對清單已保留。" : "");
+  } finally {
+    if (orderImport === session) {
+      session.request = null;
+      controls.forEach((el, i) => { el.disabled = disabled[i]; });
+      if (succeeded) renderOrderRows();
+      $("#order-payer").disabled = !session.orders.length;
+      $("#order-confirm").disabled = !session.orders.length;
+    }
+  }
+}
+
+function orderImportPayload(session, payer) {
+  return {
+    token: session.token, confirmed: true, images: session.images,
+    orders: session.orders.map(row => ({
+      platform: row.platform, order_id: row.order_id || null,
+      title: row.title.startsWith(row.platform) ? row.title : `${row.platform}－${row.title}`,
+      amount: Number(row.amount), original_amount: row.original_amount === "" || row.original_amount == null ? null : Number(row.original_amount),
+      currency: row.currency || null, spent_on: row.spent_on, category: row.category,
+      paid_by: payer, source_page: row.source_pages[0],
+    })),
+  };
+}
+
+async function submitOrderImport(form) {
+  const session = orderImport;
+  if (!session || session.request || state.submitting || !session.orders.length) return;
+  if (!form.reportValidity()) return;
+  const duplicateConfirm = $("#invoice-duplicate-confirm", form);
+  if (duplicateConfirm && !duplicateConfirm.checked) return;
+  const payload = session.pending || orderImportPayload(session, $("#order-payer").value);
+  if (duplicateConfirm?.checked) payload.reviewed_invoice_ids = JSON.parse($("#invoice-duplicates").dataset.reviewIds);
+  const controls = $$("input, select, button", form);
+  state.submitting = true;
+  controls.forEach(el => { el.disabled = true; });
+  const status = $("#form-save-status");
+  const button = $("#order-save");
+  status.hidden = true;
+  button.textContent = "正在批量儲存…";
+  let saved = false;
+  try {
+    const result = await api("/api/expenses/orders/import", { method: "POST", body: JSON.stringify(payload), timeoutMs: 60_000 });
+    if (result?.ok !== true || !Array.isArray(result.ids) || result.ids.length !== payload.orders.length) throw new Error("伺服器未確認儲存結果");
+    saved = true;
+    revealSavedExpense(payload.orders[0]);
+    closeModal({ saved: true });
+    toast(`已記帳 ${result.ids.length} 筆，按各自購物日期歸入相應月份`);
+    await loadDashboard({ quiet: true, throwOnError: true });
+  } catch (error) {
+    if (saved) {
+      renderLoadError("訂單已儲存，但清單載入失敗。請重新載入，毋須再次提交。");
+    } else {
+      // Freeze the exact submission after uncertain transport errors; retries use the same token and body.
+      session.pending = !error.status || error.status >= 500 ? payload : null;
+      if (error.code === "duplicate_invoice") showInvoiceDuplicates(error.duplicates, form);
+      status.textContent = error.message + (session.pending ? "。請按「重試原批次」確認儲存結果，不會重複入賬。" : "。本次沒有新增記錄，請核對後再試。");
+      status.hidden = false;
+    }
+  } finally {
+    state.submitting = false;
+    if (!saved && orderImport === session) {
+      controls.forEach((el, i) => { el.disabled = session.pending ? !["order-save", "cancel-modal"].includes(el.id) : false; });
+      button.textContent = session.pending ? "重試原批次" : "確認並批量記帳";
+    }
+  }
+}
+
 let invoiceRequest = null;
 let invoiceImage = null;
 
@@ -747,6 +989,7 @@ function cancelInvoiceOCR() {
 function invoiceControls() {
   return `<section class="invoice-scan" aria-label="單據識別">
     <div class="invoice-buttons">
+      <button type="button" class="button secondary" data-open-modal="orderImport">淘寶／拼多多多頁截圖</button>
       <label class="button secondary invoice-file">${icon("plus")} 拍攝單據<input type="file" accept="image/*" capture="environment" data-invoice-file aria-label="拍攝單據"></label>
       <label class="button secondary invoice-file">${icon("plus")} 上傳單據<input type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" data-invoice-file aria-label="上傳單據"></label>
     </div>
@@ -935,6 +1178,7 @@ function updateSplitCalculator() {
 function closeModal({ saved = false } = {}) {
   if (state.submitting && !saved) return;
   cancelInvoiceOCR();
+  cancelOrderImport();
   invoiceImage = null;
   $("#invoice-preview")?.removeAttribute("src");
   $("#modal-backdrop").hidden = true;
@@ -972,6 +1216,7 @@ async function submitForm(event) {
   event.preventDefault();
   if (state.submitting || invoiceRequest) return;
   const form = event.currentTarget;
+  if (form.dataset.formType === "orderImport") return submitOrderImport(form);
   const config = forms[form.dataset.formType];
   const raw = Object.fromEntries(new FormData(form));
   const payload = config.transform ? config.transform(raw) : raw;

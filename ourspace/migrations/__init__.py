@@ -4,6 +4,7 @@ from .v002_shopping_completed_at import MIGRATION as SHOPPING_COMPLETED_AT
 from .v003_query_indexes import MIGRATION as QUERY_INDEXES
 from .v004_categories import MIGRATION as CATEGORIES_TABLE
 from .v005_expense_invoices import MIGRATION as EXPENSE_INVOICES
+from .v006_order_imports import MIGRATION as ORDER_IMPORTS
 
 
 MIGRATIONS = (
@@ -12,6 +13,7 @@ MIGRATIONS = (
     QUERY_INDEXES,
     CATEGORIES_TABLE,
     EXPENSE_INVOICES,
+    ORDER_IMPORTS,
 )
 
 LATEST_SCHEMA_VERSION = MIGRATIONS[-1].version

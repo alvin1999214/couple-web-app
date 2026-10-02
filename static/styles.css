@@ -1735,3 +1735,36 @@ input::-webkit-datetime-edit { min-width: 0; padding: 0; }
   .event-actions { grid-column: 2/-1; justify-self: end; }
   .event-actions .delete-row { width: 44px; height: 44px; }
 }
+
+/* Multi-page Taobao / Pinduoduo order review */
+.modal.order-import-modal { width: min(820px, 100%); max-width: 820px; }
+.order-import { grid-column: 1 / -1; min-width: 0; }
+.order-import [hidden] { display: none !important; }
+.order-import label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.order-import .invoice-confirm { flex-direction: row; }
+.order-import .invoice-file { display: inline-flex; }
+.order-import input:not([type=checkbox]):not([type=file]), .order-import select { width: 100%; min-width: 0; }
+.order-import #order-status { font-size: 13px; line-height: 1.6; }
+.order-bulk { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; padding: 12px 0; }
+.order-bulk label { flex: 1 1 170px; }
+.order-selection, .order-row > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.order-selection { margin: 16px 0; font-size: 13px; }
+.order-row { margin: 12px 0; padding: 16px; border: 1px solid var(--line); border-radius: 10px; }
+.order-row > header { margin-bottom: 12px; }
+.order-row .invoice-confirm { margin-top: 0; }
+.order-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.order-fields .full { grid-column: 1 / -1; }
+.order-warnings { font-size: 12px; line-height: 1.6; padding-left: 20px; color: var(--burgundy); overflow-wrap: anywhere; }
+.order-previews details { margin: 8px 0; font-size: 13px; }
+.order-previews summary { cursor: pointer; padding: 8px 0; }
+.order-previews img { display: block; max-width: 100%; height: auto; margin: 8px auto; }
+@media (max-width: 520px) {
+  .order-fields { grid-template-columns: 1fr; }
+  .order-row { padding: 12px; }
+  .order-bulk button { flex: 1 1 auto; }
+}
+.order-import input:not([type=checkbox]):not([type=file]), .order-import select {
+  min-height: 44px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--card); color: var(--ink); font: inherit;
+}
+.order-import input:focus-visible, .order-import select:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }

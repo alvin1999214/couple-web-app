@@ -228,3 +228,76 @@ test('notifications exclude past, distant and already-passed annual dates', () =
   assert.equal(result.count, 2);
   assert.match(result.message, /週年，就是今日/);
 });
+
+function orderReview() {
+  const c = app();
+  const fields = {
+    '#order-bulk-date': { value: '2025-12-31' },
+    '#order-rate': { value: '1.1' },
+  };
+  c.document.querySelector = selector => fields[selector];
+  vm.runInContext(`
+    orderImport = { orders: [
+      { selected: true, spent_on: '', currency: 'CNY', original_amount: 10, amount: null },
+      { selected: false, spent_on: '2025-11-01', currency: 'CNY', original_amount: 20, amount: 30 },
+      { selected: true, spent_on: '', currency: 'HKD', original_amount: 40, amount: 40 },
+    ] };
+    renderOrderRows = () => {};
+    toast = () => {};
+  `, c);
+  return { c, fields };
+}
+
+test('order import bulk date changes only selected records unless all is requested', () => {
+  const { c } = orderReview();
+  c.applyOrderDate(true);
+  assert.equal(vm.runInContext('orderImport.orders[0].spent_on', c), '2025-12-31');
+  assert.equal(vm.runInContext('orderImport.orders[1].spent_on', c), '2025-11-01');
+  c.applyOrderDate(false);
+  assert.equal(vm.runInContext('orderImport.orders.every(r => r.spent_on === "2025-12-31")', c), true);
+});
+
+test('empty bulk date never invents today or overwrites existing dates', () => {
+  const { c, fields } = orderReview();
+  fields['#order-bulk-date'].value = '';
+  c.applyOrderDate(false);
+  assert.equal(vm.runInContext('orderImport.orders[0].spent_on', c), '');
+  assert.equal(vm.runInContext('orderImport.orders[1].spent_on', c), '2025-11-01');
+});
+
+test('order import conversion only changes selected CNY and rounds to cents', () => {
+  const { c } = orderReview();
+  c.convertOrderAmounts();
+  assert.equal(vm.runInContext('orderImport.orders[0].amount', c), 11);
+  assert.equal(vm.runInContext('orderImport.orders[1].amount', c), 30);
+  assert.equal(vm.runInContext('orderImport.orders[2].amount', c), 40);
+});
+
+test('invalid conversion cannot corrupt amounts', () => {
+  const { c, fields } = orderReview();
+  for (const value of ['0', '-1', 'Infinity', 'not a number']) {
+    fields['#order-rate'].value = value;
+    c.convertOrderAmounts();
+    assert.equal(vm.runInContext('orderImport.orders[0].amount', c), null);
+  }
+});
+
+test('order import serializes every retained row regardless of bulk selection', () => {
+  const c = app();
+  const row = { selected: false, platform: '淘寶', title: '收納盒', order_id: '123', original_amount: '10', currency: 'CNY', amount: '11', spent_on: '2025-12-31', category: 'home', source_pages: [2, 3] };
+  const result = c.orderImportPayload({token:'token',images:['a','b','c'],orders:[row]}, 'A');
+  assert.equal(result.orders.length, 1);
+  assert.equal(result.orders[0].source_page, 2);
+  assert.equal(result.orders[0].amount, 11);
+  assert.equal(result.orders[0].original_amount, 10);
+  assert.equal(result.orders[0].spent_on, '2025-12-31');
+  assert.equal(result.orders[0].title, '淘寶－收納盒');
+  assert.equal(result.orders[0].paid_by, 'A');
+  assert.equal(result.confirmed, true);
+});
+
+test('API exposes status so a rejected batch stays editable rather than becoming an uncertain retry', async () => {
+  const c = app();
+  c.fetch = async () => ({ok:false,status:409,json:async()=>({error:'duplicate',code:'duplicate_invoice',duplicates:[]})});
+  await assert.rejects(c.api('/api/expenses/orders/import'), error => error.status === 409 && error.code === 'duplicate_invoice');
+});

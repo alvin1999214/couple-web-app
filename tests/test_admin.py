@@ -51,7 +51,7 @@ class AdminServiceTests(unittest.TestCase):
         self.assertGreaterEqual(overview["counts"]["categories"], 7)
         self.assertGreaterEqual(overview["counts"]["settings"], 4)
         self.assertIn("sqlite_version", overview)
-        self.assertEqual(overview["schema_version"], 5)
+        self.assertEqual(overview["schema_version"], 6)
 
     def test_get_table_expenses_and_filters(self):
         self.expenses.create({
