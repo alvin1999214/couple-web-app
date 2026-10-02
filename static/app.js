@@ -281,7 +281,7 @@ function renderBudget() {
   const budget = settings.monthly_budget;
   const remaining = budget - monthTotal;
   const rows = expenses.length ? expenses.map((item) => {
-    const meta = categories[item.category] || categories.other;
+    const meta = categories[item.category] || { label: item.category, color: "#a8a59e", icon: "dots" };
     return `<div class="expense-row">
       <span class="category-dot" style="background:${meta.color}"></span>
       <span class="expense-info"><strong>${esc(item.title)}</strong><small>${expenseDate(item.spent_on)} · ${meta.label} · ${esc(item.paid_by)}${item.has_invoice ? ` · <a href="/api/expenses/${item.id}/invoice" target="_blank" rel="noopener">單據</a>` : ""}</small></span>
@@ -1740,7 +1740,7 @@ function renderAdminTable(data) {
         <td>
           <div class="admin-row-actions">
             <button type="button" class="icon-button edit" data-admin-edit="categories" data-id="${esc(cat.key)}" title="編輯分類">${icon("edit")}</button>
-            ${cat.is_default ? "" : `<button type="button" class="icon-button delete" data-admin-delete="categories" data-id="${esc(cat.key)}" title="移轉／移除分類" aria-label="移轉／移除分類">${icon("trash")}</button>`}
+            <button type="button" class="icon-button delete" data-admin-delete="categories" data-id="${esc(cat.key)}" title="移轉／移除分類" aria-label="移轉／移除分類">${icon("trash")}</button>
           </div>
         </td>
       </tr>
@@ -1983,7 +1983,6 @@ async function deleteAdminEntry(table, idOrKey) {
       syncCategories(list);
       const item = list.find((c) => c.key === idOrKey);
       if (!item) throw new Error("找不到指定分類");
-      if (item.is_default) throw new Error("系統預設分類不可刪除");
       if (item.expense_count + item.shopping_count > 0) {
         openModal("categoryDelete", { item, targets: list });
         return;

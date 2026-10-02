@@ -95,7 +95,7 @@ class InvoiceOCRService(Service):
             warnings.append("未能確認單據日期，請自行填寫。")
         category = result.get("category")
         if not isinstance(category, str) or category not in categories:
-            category = "other"
+            category = "other" if "other" in categories else next(iter(sorted(categories)), "")
         title = result.get("title")
         draft = {
             "title": title.strip()[:100] if isinstance(title, str) else "",

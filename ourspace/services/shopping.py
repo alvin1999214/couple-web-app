@@ -9,6 +9,7 @@ from ..validation import category, iso_date, number, positive_integer, text
 class ShoppingService(Service):
     def create(self, data: dict) -> dict:
         with self.database.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
             cursor = connection.execute(
                 "INSERT INTO shopping_items(name, quantity, category) VALUES (?, ?, ?)",
                 self._item_values(data, connection),
@@ -18,6 +19,7 @@ class ShoppingService(Service):
 
     def update(self, item_id: int, data: dict) -> dict:
         with self.database.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
             cursor = connection.execute(
                 "UPDATE shopping_items SET name = ?, quantity = ?, category = ? WHERE id = ?",
                 (*self._item_values(data, connection), item_id),
@@ -31,6 +33,7 @@ class ShoppingService(Service):
         paid_by = text(data.get("paid_by", "共同"), max_length=30, label="付款人")
         spent_on = iso_date(data.get("spent_on") or date.today().isoformat())
         with self.database.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
             item = connection.execute("SELECT * FROM shopping_items WHERE id = ?", (item_id,)).fetchone()
             if not item:
                 raise ApiError("找不到購物項目", 404)

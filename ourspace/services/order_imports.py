@@ -125,7 +125,7 @@ class OrderImportService(Service):
                          "title": title.strip()[:100] if isinstance(title, str) else "",
                          "original_amount": amount, "currency": currency,
                          "amount": amount if currency == "HKD" else None,
-                         "spent_on": spent_on, "category": item.get("category") if item.get("category") in categories else "other",
+                         "spent_on": spent_on, "category": item.get("category") if item.get("category") in categories else ("other" if "other" in categories else next(iter(sorted(categories)), "")),
                          "source_pages": sorted(set(pages)), "warnings": warnings}
                 identity = (platform, order_id)
                 if order_id and identity in identities:

@@ -71,8 +71,6 @@ class CategoryService(Service):
             row = connection.execute("SELECT is_default FROM categories WHERE key = ?", (normalized_key,)).fetchone()
             if not row:
                 raise ApiError("找不到指定分類", 404)
-            if row["is_default"]:
-                raise ApiError("系統預設分類不可刪除", 400)
 
             counts = {
                 table: connection.execute(

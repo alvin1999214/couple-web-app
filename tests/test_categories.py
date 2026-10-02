@@ -86,10 +86,41 @@ class CategoryServiceTests(unittest.TestCase):
         self.assertEqual(gaming["label"], "影音娛樂")
         self.assertEqual(gaming["color"], "#445566")
 
-    def test_cannot_delete_default_category(self):
-        with self.assertRaises(ApiError) as ctx:
+    def test_default_category_can_be_edited_and_permanently_deleted(self):
+        self.service.update("groceries", {"label": "超市", "icon": "cart", "color": "#123456"})
+        item = next(c for c in self.service.list() if c["key"] == "groceries")
+        self.assertEqual((item["label"], item["icon"], item["color"]), ("超市", "cart", "#123456"))
+        self.service.delete("groceries")
+        self.database.initialize()
+        self.assertNotIn("groceries", {c["key"] for c in self.service.list()})
+
+    def test_default_category_with_items_requires_migration(self):
+        shopping = ShoppingService(self.database)
+        item = shopping.create({"name": "牛奶", "category": "groceries"})
+        with self.assertRaises(ApiError):
             self.service.delete("groceries")
-        self.assertEqual(ctx.exception.status, 400)
+        self.service.delete("groceries", "home")
+        with self.database.connect() as conn:
+            self.assertEqual(conn.execute("SELECT category FROM shopping_items WHERE id = ?", (item["id"],)).fetchone()[0], "home")
+
+    def test_removed_fallback_categories_are_not_reused_for_new_items(self):
+        self.service.delete("other")
+        self.service.delete("groceries")
+        ShoppingService(self.database).create({"name": "新項目"})
+        ExpenseService(self.database).create({"title": "新開支", "amount": 10})
+        with self.database.connect() as conn:
+            for table in ("expenses", "shopping_items"):
+                self.assertEqual(conn.execute(f"SELECT COUNT(*) FROM {table} WHERE category NOT IN (SELECT key FROM categories)").fetchone()[0], 0)
+
+    def test_all_empty_categories_can_be_deleted_but_new_items_need_a_category(self):
+        for item in self.service.list():
+            self.service.delete(item["key"])
+        self.database.initialize()
+        self.assertEqual(self.service.list(), [])
+        with self.assertRaisesRegex(ApiError, "新增分類"):
+            ShoppingService(self.database).create({"name": "新項目"})
+        with self.assertRaisesRegex(ApiError, "新增分類"):
+            ExpenseService(self.database).create({"title": "新開支", "amount": 10})
 
     def test_delete_custom_category_reassigns_to_selected_category(self):
         self.service.create({"key": "fitness", "label": "健身運動"})

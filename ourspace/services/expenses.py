@@ -46,6 +46,7 @@ class ExpenseService(Service):
 
     def update(self, item_id: int, data: dict) -> dict:
         with self.database.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
             cursor = connection.execute(
                 "UPDATE expenses SET title = ?, amount = ?, category = ?, paid_by = ?, spent_on = ? WHERE id = ?",
                 (*self._values(data, connection), item_id),

@@ -48,7 +48,9 @@ def iso_date(value, *, label: str = "日期", allow_future: bool = True) -> str:
 
 def category(value, *, valid_keys: set | None = None) -> str:
     if valid_keys is not None:
-        return value if value in valid_keys else "other"
+        if not valid_keys:
+            raise ApiError("請先在參數管理新增分類")
+        return value if value in valid_keys else ("other" if "other" in valid_keys else sorted(valid_keys)[0])
     return value if value in CATEGORY_META else "other"
 
 
