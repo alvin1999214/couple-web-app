@@ -37,6 +37,19 @@ async function checkLayout(page, label) {
   assert.deepEqual(errors, [], label);
 }
 
+
+async function assertRowsContainChildren(page, selector, label) {
+  const errors = await page.locator(selector).evaluateAll(rows => rows.flatMap((row, i) => {
+    const box = row.getBoundingClientRect();
+    if (!box.height) return [];
+    return [...row.children].filter(child => {
+      const rect = child.getBoundingClientRect();
+      return rect.height && (rect.top < box.top - 1 || rect.bottom > box.bottom + 1);
+    }).map(child => `${i}: ${child.className || child.tagName} escapes vertically`);
+  }));
+  assert.deepEqual(errors, [], label);
+}
+
 test('responsive pages, widgets, dialogs and long text', { timeout: 180000 }, async () => {
   const dataDir = mkdtempSync(path.join(tmpdir(), 'couple-layout-'));
   const port = await new Promise(resolve => {
@@ -85,6 +98,40 @@ test('responsive pages, widgets, dialogs and long text', { timeout: 180000 }, as
       state.data.filter.is_active = true; state.data.filter.category = 'groceries';
       updateIdentity(); renderDashboard();
     });
+    // A populated, height-limited list must scroll rather than compress its rows.
+    for (const width of [320, 375, 390, 430, 768, 1280]) {
+      await page.setViewportSize({ width, height: 844 });
+      for (const count of [1, 6, 20]) {
+        await page.evaluate(count => {
+          const sample = state.data.expenses[0];
+          state.data.expenses = Array.from({ length: count }, (_, i) => ({ ...sample, id: i + 1,
+            title: i % 2 ? '晚餐' : layoutFixture.title, has_invoice: i % 2 === 0 }));
+          state.data.expense_count = count;
+          renderDashboard();
+        }, count);
+        await checkLayout(page, `expense list ${width} ${count} rows`);
+        const errors = await page.locator('.expense-list').evaluate(list => {
+          const errors = [];
+          const rows = [...list.querySelectorAll('.expense-row')];
+          for (const [i, row] of rows.entries()) {
+            const box = row.getBoundingClientRect();
+            const info = row.querySelector('.expense-info').getBoundingClientRect();
+            const amount = row.querySelector('.expense-amount').getBoundingClientRect();
+            const actions = row.querySelector('.expense-actions').getBoundingClientRect();
+            for (const child of row.children) {
+              const rect = child.getBoundingClientRect();
+              if (rect.top < box.top - 1 || rect.bottom > box.bottom + 1) errors.push(`row ${i}: child escapes row vertically`);
+            }
+            const overlaps = (a, b) => a.left < b.right - 1 && a.right > b.left + 1 && a.top < b.bottom - 1 && a.bottom > b.top + 1;
+            if (overlaps(info, amount) || overlaps(info, actions) || overlaps(amount, actions)) errors.push(`row ${i}: content overlaps`);
+          }
+          list.scrollTop = list.scrollHeight;
+          if (rows.at(-1).getBoundingClientRect().bottom > list.getBoundingClientRect().bottom + 1) errors.push('last record cannot be reached');
+          return errors;
+        });
+        assert.deepEqual(errors, [], `expense list ${width} ${count} rows`);
+      }
+    }
     for (const width of widths) {
       await page.setViewportSize({ width, height: 900 });
       for (const size of ['small', 'medium', 'large', 'wide']) {
@@ -96,6 +143,41 @@ test('responsive pages, widgets, dialogs and long text', { timeout: 180000 }, as
       await page.evaluate(() => { state.editing = false; renderDashboard(); });
     }
     assert.equal(await page.locator('.expense-info em,.list-main em').count(), 0);
+    // Other list widgets must retain each row's intrinsic height with full previews.
+    await page.evaluate(() => {
+      for (const key of ['shopping', 'todos', 'special_days']) {
+        const sample = state.data[key][0];
+        state.data[key] = Array.from({ length: 20 }, (_, i) => ({ ...sample, id: i + 1 }));
+      }
+      renderDashboard();
+    });
+    for (const width of [320, 390, 768, 1280]) {
+      await page.setViewportSize({ width, height: 360 });
+      await checkLayout(page, `populated widgets short viewport ${width}`);
+      assert.equal(await page.locator('#shopping .check-row').count(), 6);
+      assert.equal(await page.locator('#todo .check-row').count(), 6);
+      assert.equal(await page.locator('.event-card').count(), 3);
+      await assertRowsContainChildren(page, '.check-row,.event-card', `widget rows ${width}`);
+      if (width > 800) {
+        await assertRowsContainChildren(page, '.sidebar > .brand,.sidebar-bottom', 'short sidebar');
+        await page.locator('.sidebar .settings-trigger').scrollIntoViewIfNeeded();
+        const box = await page.locator('.sidebar .settings-trigger').boundingBox();
+        assert.ok(box.y >= 0 && box.y + box.height <= 360, 'sidebar settings reachable');
+      }
+      await page.evaluate(() => {
+        for (let i = 0; i < 5; i++) toast('多個操作同時回報：' + 'LongMessage'.repeat(30), true);
+      });
+      await checkLayout(page, `stacked notices ${width}`);
+      const noticeBox = await page.locator('.toast-region').boundingBox();
+      assert.ok(noticeBox.y >= 0 && noticeBox.y + noticeBox.height <= 360, `stacked notices stay in viewport ${width}`);
+      await assertRowsContainChildren(page, '.toast', `notice rows ${width}`);
+      await page.locator('.toast').first().scrollIntoViewIfNeeded();
+      assert.ok((await page.locator('.toast').first().boundingBox()).y >= 0, 'oldest notice reachable');
+      await page.locator('.toast').last().scrollIntoViewIfNeeded();
+      const last = await page.locator('.toast').last().boundingBox();
+      assert.ok(last.y + last.height <= 360, 'newest notice reachable');
+      await page.evaluate(() => document.querySelector('#toast-region').replaceChildren());
+    }
     const types = await page.evaluate(() => Object.keys(forms));
     for (const width of [320, 390, 801, 1280]) {
       await page.setViewportSize({ width, height: width === 801 ? 450 : 844 });
@@ -124,15 +206,22 @@ test('responsive pages, widgets, dialogs and long text', { timeout: 180000 }, as
         openModal('expense');
         document.querySelector('#invoice-status').textContent = layoutFixture.title.repeat(3);
         const warnings = document.querySelector('#invoice-warnings'); warnings.hidden = false; warnings.innerHTML = '<li>' + 'OCRWarning'.repeat(30) + '</li>';
-        showInvoiceDuplicates([{ id: 1, title: layoutFixture.title, amount: 100000000, spent_on: localISODate() }], document.querySelector('#dynamic-form'));
+        showInvoiceDuplicates(Array.from({ length: 20 }, (_, i) => ({ id: i + 1, title: layoutFixture.title, amount: 100000000, spent_on: localISODate() })), document.querySelector('#dynamic-form'));
       });
       await checkLayout(page, `receipt warnings ${width}`);
+      await page.locator('.invoice-duplicates li').last().scrollIntoViewIfNeeded();
+      assert.ok(await page.locator('.invoice-duplicates li').last().evaluate(el => el.getBoundingClientRect().bottom <= el.parentElement.getBoundingClientRect().bottom + 1), 'last duplicate reachable');
+      await page.locator('#invoice-duplicate-confirm').scrollIntoViewIfNeeded();
       await page.evaluate(() => {
         closeModal(); openOrderImport(); document.querySelector('#order-review').hidden = false;
-        orderImport.orders = Array.from({ length: 3 }, () => ({ selected: true, platform: '淘寶', order_id: 'OrderID'.repeat(14), title: layoutFixture.title, original_amount: 100000000, currency: 'CNY', amount: 100000000, spent_on: '', category: 'groceries', source_pages: [1,2,3,4,5,6,7,8,9,10], warnings: ['WarningWithoutSpaces'.repeat(20)] }));
+        orderImport.orders = Array.from({ length: 100 }, () => ({ selected: true, platform: '淘寶', order_id: 'OrderID'.repeat(14), title: layoutFixture.title, original_amount: 100000000, currency: 'CNY', amount: 100000000, spent_on: '', category: 'groceries', source_pages: [1,2,3,4,5,6,7,8,9,10], warnings: ['WarningWithoutSpaces'.repeat(20)] }));
         renderOrderRows();
       });
       await checkLayout(page, `order review ${width}`);
+      await assertRowsContainChildren(page, '.order-row,.order-fields > label', `order rows ${width}`);
+      await page.locator('#order-save').scrollIntoViewIfNeeded();
+      const saveBox = await page.locator('#order-save').boundingBox();
+      assert.ok(saveBox.y >= 0 && saveBox.y + saveBox.height <= page.viewportSize().height, '100-order submit reachable');
       if (width <= 800) assert.ok(await page.locator('[data-order-field=title]').first().evaluate(el => parseFloat(getComputedStyle(el).fontSize) >= 16));
       await page.evaluate(() => closeModal());
       await page.evaluate(() => toast('LongErrorMessage'.repeat(35), true));
@@ -146,10 +235,11 @@ test('responsive pages, widgets, dialogs and long text', { timeout: 180000 }, as
         await page.evaluate(table => {
           const { title, cat, name } = layoutFixture;
           renderAdminContextFilters(table);
-          renderAdminTable({ table, rows: [{ id: 1, key: 'LongUnbrokenParameterKey'.repeat(5), title, name: title, label: cat, color: '#abcdef', icon: 'tag', amount: 100000000, category: 'groceries', paid_by: name, assignee: name, spent_on: localISODate(), due_date: localISODate(), event_date: localISODate(), emoji: '♥♥♥♥♥♥♥♥', value: title.repeat(3) }] });
+          renderAdminTable({ table, rows: Array.from({ length: 20 }, (_, i) => ({ id: i + 1, key: 'LongUnbrokenParameterKey'.repeat(5), title, name: title, label: cat, color: '#abcdef', icon: 'tag', amount: 100000000, category: 'groceries', paid_by: name, assignee: name, spent_on: localISODate(), due_date: localISODate(), event_date: localISODate(), emoji: '♥♥♥♥♥♥♥♥', value: title.repeat(3) })) });
           renderAdminMetrics({ counts: { categories: 100000 }, total_expense_amount: 100000000000, db_size_formatted: '123456789 MB', schema_version: 8 });
         }, table);
         await checkLayout(page, `admin ${table} ${width}`);
+        await assertRowsContainChildren(page, '.admin-data-table td', `table contents ${table} ${width}`);
         const tableOverflow = await page.locator('.admin-data-table').evaluate(el => el.scrollWidth > el.clientWidth + 2);
         assert.equal(tableOverflow, false, `table cells contained ${table} ${width}`);
       }

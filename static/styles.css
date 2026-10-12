@@ -462,7 +462,8 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 .expense-panel-title button { border: 0; background: transparent; color: var(--coral-dark); font-size: 10px; cursor: pointer; }
 .expense-list, .check-list { display: flex; flex-direction: column; }
 .expense-list { max-height: 300px; overflow-y: auto; padding-right: 3px; scrollbar-color: #d8d1c7 transparent; scrollbar-width: thin; }
-.expense-row { display: grid; grid-template-columns: 7px minmax(0, 1fr) auto auto; align-items: center; gap: 8px 10px; padding-block: 10px; min-height: 48px; border-bottom: 1px solid #f0ece5; }
+/* The scrollable flex list must not compress rows below their wrapped content. */
+.expense-row { flex-shrink: 0; display: grid; grid-template-columns: 7px minmax(0, 1fr) auto auto; align-items: center; gap: 8px 10px; padding-block: 10px; min-height: 48px; border-bottom: 1px solid #f0ece5; }
 .expense-row:last-child { border-bottom: 0; }
 .category-dot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; }
 .expense-info { display: flex; min-width: 0; flex: 1; flex-direction: column; }
@@ -651,8 +652,8 @@ footer span { color: var(--coral); }
 .form-actions { display: flex; flex-wrap: wrap; grid-column: 1/-1; justify-content: flex-end; gap: 9px; margin-top: 8px; }
 .form-actions .button { min-width: 110px; }
 .settings-names { grid-column: 1/-1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.toast-region { max-width: calc(100% - 48px); position: fixed; z-index: 200; right: 24px; bottom: 25px; display: flex; flex-direction: column; gap: 8px; }
-.toast { overflow-wrap: anywhere; max-width: 100%; display: flex; align-items: center; gap: 9px; min-width: 220px; padding: 13px 16px; border-radius: 13px; background: #28352d; color: white; box-shadow: 0 12px 30px rgba(31,39,34,.2); font-size: 11px; animation: toastIn .3s, toastOut .3s 2.7s forwards; }
+.toast-region { --toast-bottom: 25px; max-height: calc(100vh - var(--toast-bottom) - 24px); max-height: calc(100dvh - var(--toast-bottom) - max(14px, env(safe-area-inset-top))); overflow-y: auto; overscroll-behavior-y: contain; max-width: calc(100% - 48px); position: fixed; z-index: 200; right: 24px; bottom: var(--toast-bottom); display: flex; flex-direction: column; gap: 8px; }
+.toast { flex-shrink: 0; overflow-wrap: anywhere; max-width: 100%; display: flex; align-items: center; gap: 9px; min-width: 220px; padding: 13px 16px; border-radius: 13px; background: #28352d; color: white; box-shadow: 0 12px 30px rgba(31,39,34,.2); font-size: 11px; animation: toastIn .3s, toastOut .3s 2.7s forwards; }
 .toast.error { background: #8b4940; }
 .toast > .toast-icon { flex-shrink: 0; display: grid; width: 19px; height: 19px; place-items: center; border-radius: 50%; background: rgba(255,255,255,.15); }
 .mobile-nav { display: none; }
@@ -749,7 +750,7 @@ footer span { color: var(--coral); }
   .modal-handle { display: block; width: 38px; height: 4px; margin: 0 auto 17px; border-radius: 4px; background: #d9d4cc; }
   .modal form { grid-template-columns: minmax(0, 1fr); }
   .field.full, .form-actions, .form-note, .settings-names { grid-column: 1; }
-  .toast-region { right: 14px; bottom: 80px; left: 14px; }
+  .toast-region { --toast-bottom: 80px; right: 14px; left: 14px; }
   .toast { justify-content: center; }
   .delete-row { opacity: 1; }
   footer { padding-bottom: 10px; }
@@ -1131,7 +1132,7 @@ footer span { color: var(--gold-bright); }
   .widget { padding: 18px; border-radius: 16px; }
   .modal { border-radius: 20px 20px 0 0; }
   .modal-handle { background: #8091aa; }
-  .toast-region { bottom: calc(80px + env(safe-area-inset-bottom)); }
+  .toast-region { --toast-bottom: calc(80px + env(safe-area-inset-bottom)); }
 }
 
 @media (max-width: 480px) {
