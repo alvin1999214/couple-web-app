@@ -1347,6 +1347,11 @@ async function clearCompletedShopping() {
 }
 
 async function deleteItem(type, id, button) {
+  const name = button.getAttribute("aria-label")?.replace(/^刪除\s*/, "");
+  const message = `確定要刪除${name ? `「${name}」` : "這筆資料"}嗎？此操作無法復原。`;
+  const note = type === "shopping" ? "\n已記錄的開支會保留。" : "";
+  if (!window.confirm(message + note)) return;
+
   button.disabled = true;
   try {
     await api(`/api/${type}/${id}`, { method: "DELETE" });
