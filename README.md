@@ -308,3 +308,19 @@ node --check static/app.js
 在「參數管理 → 記帳分類」按分類旁的垃圾桶。空分類確認後直接從資料庫刪除；有開支或購物項目時，先選擇另一個分類，再按「確認移轉並移除」。所有相關開支與購物項目（包括已完成項目）會一起移轉，保留原有內容、單據及關聯，然後永久刪除原分類記錄。系統預設分類也可編輯名稱、圖示及顏色，並使用相同移轉／移除流程；刪除後不會在重新啟動時重建。若已刪除所有分類，請先新增分類再記帳或新增購物項目。
 
 `DELETE /api/categories/{key}` 支援 JSON body `{"target_category":"目標分類代碼"}`。有關聯項目卻未提供目標時回傳 409；目標不存在或與原分類相同則拒絕。移轉與刪除在同一 SQLite transaction 完成，失敗會全部回滾。
+
+### 前端排版回歸驗證
+
+長名稱、無空格英文、分類及金額會在內容區換行；widget 依自身寬度排列文字、金額與按鈕，調整卡片大小後仍適用。管理表格保留欄位寬度，在表格區內橫向捲動，亦可用鍵盤聚焦操作。原生單行輸入框及下拉選單維持瀏覽器原有編輯／選取行為。
+
+`tests/test_layout.cjs` 使用真實 Chromium 檢查首次設定、空白／長文字 dashboard、四種 widget 尺寸、版面編輯、所有表單、三種分帳方式、單據警告、訂單核對、通知及六個管理分頁。覆蓋 320、390、520、800、801、900、1120、1121、1280、1440px 與低高度視窗，檢查頁面橫向溢出、文字被卡片裁切、按鈕可捲動到達及隱藏欄位狀態。
+
+這是可選的開發測試，需 Node.js 18+、Python 3、Chromium 與 `playwright-core`；不增加應用程式 runtime dependency。例如在專案外安裝測試工具後執行：
+
+```bash
+npm install --prefix /tmp/couple-layout-tools playwright-core
+NODE_PATH=/tmp/couple-layout-tools/node_modules CHROMIUM_PATH=/usr/bin/chromium node --test tests/test_layout.cjs
+node --test tests/test_frontend.cjs
+```
+
+測試會自動啟動獨立 server，並建立、移除暫存資料庫，不使用現有 app 資料。可用 `PYTHON` 指定 Python 執行檔、`LAYOUT_SCREENSHOTS=/tmp/couple-layout-screenshots` 保存檢查畫面。測試固定使用後備字體；iOS Safari 的實機鍵盤、原生選單及 safe-area 仍需在裝置驗收。修改 CSS／JavaScript 後須同步提升 `index.html` 的資源版本；Docker 部署須重新 build。

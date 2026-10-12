@@ -284,7 +284,7 @@ function renderBudget() {
     const meta = categories[item.category] || { label: item.category, color: "#a8a59e", icon: "dots" };
     return `<div class="expense-row">
       <span class="category-dot" style="background:${meta.color}"></span>
-      <span class="expense-info"><strong>${esc(item.title)}</strong><small>${expenseDate(item.spent_on)} · ${meta.label} · ${esc(item.paid_by)}${item.has_invoice ? ` · <a href="/api/expenses/${item.id}/invoice" target="_blank" rel="noopener">單據</a>` : ""}</small></span>
+      <span class="expense-info"><strong>${esc(item.title)}</strong><small>${expenseDate(item.spent_on)} · ${esc(meta.label)} · ${esc(item.paid_by)}${item.has_invoice ? ` · <a href="/api/expenses/${item.id}/invoice" target="_blank" rel="noopener">單據</a>` : ""}</small></span>
       <span class="expense-amount">${money(item.amount)}</span>
       <span class="expense-actions">
         <button class="delete-row edit-row" data-edit-expense="${item.id}" aria-label="編輯 ${esc(item.title)}">${icon("edit")}</button>
@@ -333,7 +333,7 @@ function renderShopping() {
       ${item.purchased
         ? `<button class="round-check checked" disabled aria-label="已完成及入帳">${icon("check")}</button>`
         : `<button class="round-check" data-complete-shopping="${item.id}" aria-label="完成購物並輸入價格"></button>`}
-      <span class="list-main"><strong>${esc(item.name)}${item.quantity > 1 ? ` × ${item.quantity}` : ""}</strong><small>${categories[item.category]?.label || "其他"}${item.purchased ? " · 已記入開支" : ""}</small></span>
+      <span class="list-main"><strong>${esc(item.name)}${item.quantity > 1 ? ` × ${item.quantity}` : ""}</strong><small>${esc(categories[item.category]?.label || "其他")}${item.purchased ? " · 已記入開支" : ""}</small></span>
       <span class="expense-actions">
         <button class="delete-row edit-row" data-edit-shopping="${item.id}" aria-label="編輯 ${esc(item.name)}">${icon("edit")}</button>
         <button class="delete-row" data-delete="shopping" data-id="${item.id}" aria-label="刪除 ${esc(item.name)}">${icon("trash")}</button>
@@ -1158,7 +1158,7 @@ function renderField(field) {
     const properties = ["min", "max", "step", "maxlength"].filter((key) => field[key] !== undefined).map((key) => `${key}="${esc(field[key])}"`).join(" ");
     control = `<input name="${field.name}" type="${field.type || "text"}" value="${esc(value)}" placeholder="${esc(field.placeholder || "")}" ${properties} ${attrs}>`;
   }
-  return `<div class="field ${field.full ? "full" : ""}" ${field.group ? `data-split-group="${field.group}"` : ""}><label for="field-${field.name}">${field.label}</label>${control.replace(`name="${field.name}"`, `id="field-${field.name}" name="${field.name}"`)}</div>`;
+  return `<div class="field ${field.full ? "full" : ""}" ${field.group ? `data-split-group="${field.group}"` : ""}><label for="field-${field.name}">${esc(field.label)}</label>${control.replace(`name="${field.name}"`, `id="field-${field.name}" name="${field.name}"`)}</div>`;
 }
 
 
@@ -1371,7 +1371,7 @@ async function deleteItem(type, id, button) {
 function toast(message, error = false) {
   const element = document.createElement("div");
   element.className = `toast ${error ? "error" : ""}`;
-  element.innerHTML = `<span>${error ? "!" : "✓"}</span>${esc(message)}`;
+  element.innerHTML = `<span class="toast-icon">${error ? "!" : "✓"}</span><div class="toast-message">${esc(message)}</div>`;
   $("#toast-region").append(element);
   setTimeout(() => element.remove(), 3100);
 }

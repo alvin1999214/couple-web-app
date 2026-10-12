@@ -202,7 +202,7 @@ for (const [label, today, date, yearly, expectedDate, days] of [
     assert.equal(result.next.getFullYear(), Number(expectedDate.slice(0, 4)));
     assert.equal(result.next.getMonth() + 1, Number(expectedDate.slice(5, 7)));
     assert.equal(result.next.getDate(), Number(expectedDate.slice(8, 10)));
-    assert.equal(c.specialDayLabel(result.days), days < 0 ? `已過 ${-days} 天` : days === 0 ? '就是今日' : `還有 ${days} 天`);
+    assert.equal(c.specialDayLabel(result.days), days < 0 ? `在 ${-days} 天之前` : days === 0 ? '就是今日' : `還有 ${days} 天`);
   });
 }
 

@@ -19,7 +19,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=Noto+Sans+TC:wght@400;500;600;700&family=Noto+Serif+TC:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20260928-3">
+  <link rel="stylesheet" href="/styles.css?v=20261012-1">
 </head>
 <body>
   <svg class="svg-sprite" aria-hidden="true">
@@ -260,7 +260,7 @@
             </div>
           </div>
 
-          <div class="admin-table-container" id="admin-table-container">
+          <div class="admin-table-container" id="admin-table-container" tabindex="0" role="region" aria-label="資料表，可左右捲動查看所有欄位">
             <!-- Table dynamically populated by app.js -->
           </div>
 
@@ -300,6 +300,6 @@
       boot.innerHTML = '<span class="boot-error-mark">!</span><strong>啟動時間比預期長</strong><p>請確認服務仍在運作，然後重新載入。</p><button type="button" onclick="window.location.reload()">重新載入</button>';
     }, 10000);
   </script>
-  <script src="/app.js?v=20260928-4" defer></script>
+  <script src="/app.js?v=20261012-1" defer></script>
 </body>
 </html>
